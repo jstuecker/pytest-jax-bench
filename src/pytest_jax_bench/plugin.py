@@ -394,17 +394,17 @@ class BenchJax:
         # Header: human-friendly comments, then a single commented column line.
         # Data: tab-separated numeric values (suitable for np.loadtxt with delimiter='	').
         columns = [
-            "run_id",
-            "commit",
-            "commit_run",
-            "compile_ms",
-            "run_mean_ms",
-            "run_std_ms",
-            "rounds",
-            "warmup",
-            "graph_mem_bytes_est",
-            "rss_peak_delta_bytes",
-            "gpu_peak_bytes",
+            "Run ID",
+            "Commit",
+            "Commit Run",
+            "Compile Time (ms)",
+            "Mean Run Time (ms)",
+            "Std. Dev. Run Time (ms)",
+            "Run Rounds",
+            "Warmup Rounds",
+            "Estimated Memory (MB)",
+            "rss_peak_delta_bytes (MB)",
+            "gpu_peak_bytes (MB)",
         ]
 
         with open(path, "a", encoding="utf-8") as f:
@@ -418,7 +418,7 @@ class BenchJax:
                 f.write(f"# First commit: {current_commit}\n")
                 # f.write("# " + "\t".join(columns) + "\n")
                 for i,c in enumerate(columns):
-                    f.write(f"({i+1}) {c}\n")
+                    f.write(f"# ({i+1}) {c}\n")
                 f.write(f"#      (1) ")
                 for i in range(1, len(columns)):
                     f.write(f"      ({i+1}) ")
@@ -437,9 +437,9 @@ class BenchJax:
                 f"{row.run_std_ms:10.2f}"
                 f"{row.rounds:10}"
                 f"{row.warmup:10}"
-                f"{row.graph_mem_bytes_est:10}"
-                f"{row.rss_peak_delta_bytes:10}"
-                f"{row.gpu_peak_bytes:10}"
+                f"{row.graph_mem_bytes_est/1024.**2:10.2f}"
+                f"{row.rss_peak_delta_bytes/1024.**2:10.2f}"
+                f"{row.gpu_peak_bytes/1024.**2:10.2f}"
             )
             f.write(line + "\n")
 
