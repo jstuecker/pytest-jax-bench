@@ -353,7 +353,11 @@ class BenchJax:
     # ---------- IO ----------
 
     def _outfile(self, test_nodeid: str, name: str) -> str:
-        node = re.sub(r"[^A-Za-z0-9._-]+", "_", test_nodeid)
+        print(self.output_dir, "x", test_nodeid, "x", name, "x")
+
+        test_file, test_name = test_nodeid.split("::")
+        node = re.sub(r"[^A-Za-z0-9._-]+", "_", test_name)
+        # node = re.sub(r"\.py", "", node)
         nm = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
         return os.path.join(self.output_dir, f"{node}_{nm}.csv")
 
@@ -372,24 +376,31 @@ class BenchJax:
             "rss_peak_delta_bytes",
             "gpu_peak_bytes",
         ]
+
         with open(path, "a", encoding="utf-8") as f:
             if is_new:
-                f.write(f"# pytest-jax-bench")
-                f.write(f"# created: {_now_iso()}")
-                f.write(f"# test_nodeid: {test_nodeid}")
-                f.write(f"# name: {name}")
-                f.write(f"# backend: {backend}")
-                f.write("# " + "	".join(columns) + "\n")
+                f.write(f"# pytest-jax-bench\n")
+                f.write(f"# created: {_now_iso()}\n")
+                f.write(f"# test_nodeid: {test_nodeid}\n")
+                f.write(f"# name: {name}\n")
+                f.write(f"# backend: {backend}\n")
+                # f.write("# " + "\t".join(columns) + "\n")
+                for i,c in enumerate(columns):
+                    f.write(f"({i+1}) {c}\n")
+                f.write(f"#      (1) ")
+                for i in range(1, len(columns)):
+                    f.write(f"      ({i+1}) ")
+                f.write("\n")
             # format: ms with .2f, ints as decimal
             line = (
-                f"{row.compile_ms:.2f}	"
-                f"{row.run_mean_ms:.2f}	"
-                f"{row.run_std_ms:.2f}	"
-                f"{row.rounds}	"
-                f"{row.warmup}	"
-                f"{row.graph_mem_bytes_est}	"
-                f"{row.rss_peak_delta_bytes}	"
-                f"{row.gpu_peak_bytes}\n"
+                f"{row.compile_ms:10.2f}"
+                f"{row.run_mean_ms:10.2f}"
+                f"{row.run_std_ms:10.2f}"
+                f"{row.rounds:10}"
+                f"{row.warmup:10}"
+                f"{row.graph_mem_bytes_est:10}"
+                f"{row.rss_peak_delta_bytes:10}"
+                f"{row.gpu_peak_bytes:10}"
             )
             f.write(line)
 
