@@ -62,7 +62,9 @@ class BenchJaxRow:
     run_std_ms: float
     rounds: int
     warmup: int
-    graph_mem_bytes_est: int
+    graph_generated_code_size: int
+    graph_peak_memory: int
+    graph_temp_size: int
     rss_peak_delta_bytes: int
     gpu_peak_bytes: int
 
@@ -111,21 +113,6 @@ def _num_elements(type_str: str) -> Optional[int]:
             return None
     return prod
 
-
-def estimate_stablehlo_memory_bytes(compiled_ir_str: str) -> int:
-    seen: set[str] = set()
-    total = 0
-    for m in _TENSOR_RE.finditer(compiled_ir_str):
-        t = m.group(1)
-        if t in seen:
-            continue
-        seen.add(t)
-        n_el = _num_elements(t)
-        bpe = _dtype_nbytes(t)
-        if n_el is None or bpe is None:
-            continue
-        total += n_el * bpe
-    return total
 
 
 def _now_iso() -> str:
@@ -261,13 +248,11 @@ class BenchJax:
         std = math.sqrt(var)
         return mean, std, rounds, warmup
 
-    def graph_memory_estimate(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> int:
+    def graph_memory_analysis(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> int:
         lowered = jax.jit(fn).lower(*args, **kwargs)
-        try:
-            ir = lowered.compiler_ir(dialect="stablehlo")
-        except TypeError:
-            ir = lowered.compiler_ir(dialect="hlo")
-        return estimate_stablehlo_memory_bytes(str(ir))
+        mem = lowered.compile().memory_analysis()
+
+        return mem
 
     def practical_memory(self, run_callable: Callable[[], Any], gpu_memory: bool = False) -> tuple[int, int]:
         pid = os.getpid()
@@ -330,10 +315,7 @@ class BenchJax:
             compile_ms = self.compile_time_ms(fn, *args, **kwargs)
 
         if profile_graph:
-            try:
-                graph_mem = self.graph_memory_estimate(fn, *args, **kwargs)
-            except Exception:
-                graph_mem = 0
+            graph_mem = self.graph_memory_analysis(fn, *args, **kwargs)
 
         if profile_run:
             run_mean_ms, run_std_ms, _rounds, _warmup = self.run_ms(fn, *args, rounds=rounds, warmup=warmup, **kwargs)
@@ -352,9 +334,11 @@ class BenchJax:
             run_std_ms=float(run_std_ms),
             rounds=int(_rounds),
             warmup=int(_warmup),
-            graph_mem_bytes_est=int(graph_mem),
+            graph_generated_code_size = graph_mem.generated_code_size_in_bytes,
+            graph_peak_memory = graph_mem.peak_memory_in_bytes,
+            graph_temp_size = graph_mem.temp_size_in_bytes,
             rss_peak_delta_bytes=int(rss_peak),
-            gpu_peak_bytes=int(gpu_peak),
+            gpu_peak_bytes=int(gpu_peak)
         )
 
         self._write_row(name=name, test_nodeid=test_nodeid, backend=backend, row=row)
@@ -402,7 +386,9 @@ class BenchJax:
             "Std. Dev. Run Time (ms)",
             "Run Rounds",
             "Warmup Rounds",
-            "Estimated Memory (MB)",
+            "Graph Peak Memory (MB)",
+            "Graph Generated Code Size (MB)",
+            "Graph Temp Size (MB)",
             "rss_peak_delta_bytes (MB)",
             "gpu_peak_bytes (MB)",
         ]
@@ -418,10 +404,10 @@ class BenchJax:
                 f.write(f"# First commit: {current_commit}\n")
                 # f.write("# " + "\t".join(columns) + "\n")
                 for i,c in enumerate(columns):
-                    f.write(f"# ({i+1}) {c}\n")
-                f.write(f"#      (1) ")
+                    f.write(f"# ({i+1:2d}) {c}\n")
+                f.write(f"#     ( 1) ")
                 for i in range(1, len(columns)):
-                    f.write(f"      ({i+1}) ")
+                    f.write(f"     ({i+1:2d}) ")
                 f.write("\n")
             # format: ms with .2f, ints as decimal
             # Layout: run_id (int), commit (7-char), commit_run (int), then numeric fields.
@@ -437,7 +423,9 @@ class BenchJax:
                 f"{row.run_std_ms:10.2f}"
                 f"{row.rounds:10}"
                 f"{row.warmup:10}"
-                f"{row.graph_mem_bytes_est/1024.**2:10.2f}"
+                f"{row.graph_peak_memory/1024.**2:10.2f}"
+                f"{row.graph_generated_code_size/1024.**2:10.2f}"
+                f"{row.graph_temp_size/1024.**2:10.2f}"
                 f"{row.rss_peak_delta_bytes/1024.**2:10.2f}"
                 f"{row.gpu_peak_bytes/1024.**2:10.2f}"
             )
