@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Callable, Optional
 
 import pytest
+import subprocess
 
 # Optional runtime deps
 try:  # process memory (RSS)
@@ -129,6 +130,16 @@ def estimate_stablehlo_memory_bytes(compiled_ir_str: str) -> int:
 
 def _now_iso() -> str:
     return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+
+def _git_commit_short() -> str:
+    """Return short git commit id (7 chars) or 'unknown' if not available."""
+    try:
+        # Use git directly to avoid adding heavy deps. This will fail cleanly if not a git repo.
+        out = subprocess.check_output(["git", "rev-parse", "--short=7", "HEAD"], stderr=subprocess.DEVNULL)
+        return out.decode("utf-8").strip()
+    except Exception:
+        return "unknown"
 
 
 def _get_backend() -> str:
@@ -353,8 +364,6 @@ class BenchJax:
     # ---------- IO ----------
 
     def _outfile(self, test_nodeid: str, name: str) -> str:
-        print(self.output_dir, "x", test_nodeid, "x", name, "x")
-
         test_file, test_name = test_nodeid.split("::")
         node = re.sub(r"[^A-Za-z0-9._-]+", "_", test_name)
         # node = re.sub(r"\.py", "", node)
@@ -363,10 +372,31 @@ class BenchJax:
 
     def _write_row(self, *, name: str, test_nodeid: str, backend: str, row: BenchJaxRow) -> None:
         path = self._outfile(test_nodeid, name)
-        is_new = not os.path.exists(path)
+        # Read existing file (if any) to determine run-id and per-commit run count
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as _f:
+                    _lines = _f.readlines()
+            except Exception:
+                _lines = []
+        else:
+            _lines = []
+
+        # Data lines are those that are not comments (#) and not the column name lines (starting with '(')
+        existing_data_lines = [l for l in _lines if l.strip() and not l.lstrip().startswith("#") and not l.lstrip().startswith("(")]
+        run_id = len(existing_data_lines)
+
+        current_commit = _git_commit_short()
+        # count occurences of current_commit in existing data lines
+        commit_run = sum(1 for l in existing_data_lines if re.search(rf"\b{current_commit}\b", l))
+
+        is_new = len(_lines) == 0
         # Header: human-friendly comments, then a single commented column line.
         # Data: tab-separated numeric values (suitable for np.loadtxt with delimiter='	').
         columns = [
+            "run_id",
+            "commit",
+            "commit_run",
             "compile_ms",
             "run_mean_ms",
             "run_std_ms",
@@ -384,6 +414,8 @@ class BenchJax:
                 f.write(f"# test_nodeid: {test_nodeid}\n")
                 f.write(f"# name: {name}\n")
                 f.write(f"# backend: {backend}\n")
+                # include commit in the header metadata for clarity
+                f.write(f"# First commit: {current_commit}\n")
                 # f.write("# " + "\t".join(columns) + "\n")
                 for i,c in enumerate(columns):
                     f.write(f"({i+1}) {c}\n")
@@ -392,7 +424,14 @@ class BenchJax:
                     f.write(f"      ({i+1}) ")
                 f.write("\n")
             # format: ms with .2f, ints as decimal
+            # Layout: run_id (int), commit (7-char), commit_run (int), then numeric fields.
+            # Keep similar field widths to the original layout for readability.
+            
+            commit = current_commit
             line = (
+                f"{run_id:10d}"
+                f"{commit:>10s}"
+                f"{commit_run:10}"
                 f"{row.compile_ms:10.2f}"
                 f"{row.run_mean_ms:10.2f}"
                 f"{row.run_std_ms:10.2f}"
@@ -402,7 +441,7 @@ class BenchJax:
                 f"{row.rss_peak_delta_bytes:10}"
                 f"{row.gpu_peak_bytes:10}"
             )
-            f.write(line)
+            f.write(line + "\n")
 
     def _print_console(self, *, name: str, backend: str, row: BenchJaxRow) -> None:
         # Print a summary when -v/--verbose is used
