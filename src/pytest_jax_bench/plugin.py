@@ -57,17 +57,16 @@ def pytest_configure(config: pytest.Config) -> None:
 
 @dataclass
 class BenchJaxRow:
-    # Stored in **milliseconds** with .2f formatting on write
-    compile_ms: float
-    run_mean_ms: float
-    run_std_ms: float
-    rounds: int
-    warmup: int
-    graph_generated_code_size: int
-    graph_peak_memory: int
-    graph_temp_size: int
-    rss_peak_delta_bytes: int
-    gpu_peak_bytes: int
+    compile_ms: float = 0.
+    run_mean_ms: float = 0.
+    run_std_ms: float = 0.
+    rounds: int = 0
+    warmup: int = 0
+    graph_generated_code_size: int = 0
+    graph_peak_memory: int = 0
+    graph_temp_size: int = 0
+    rss_peak_delta_bytes: int = 0
+    gpu_peak_bytes: int = 0
 
 
 # ---------------------------
@@ -301,20 +300,17 @@ class BenchJax:
         # defaults for this instance
         gpu_memory = self.default_gpu_memory if gpu_memory is None else bool(gpu_memory)
 
-        compile_ms = 0.0
-        run_mean_ms = 0.0
-        run_std_ms = 0.0
-        _rounds = int(rounds) if rounds is not None else 0
-        _warmup = int(warmup) if warmup is not None else 0
-        graph_mem = 0
-        rss_peak = 0
-        gpu_peak = 0
+        res = BenchJaxRow()
 
-        compile_ms, lowered, compiled = self.compile_time_ms(fn, *args, **kwargs)
+        res.compile_ms, lowered, compiled = self.compile_time_ms(fn, *args, **kwargs)
         graph_mem = compiled.memory_analysis()
 
+        res.graph_generated_code_size = graph_mem.generated_code_size_in_bytes
+        res.graph_peak_memory = graph_mem.peak_memory_in_bytes
+        res.graph_temp_size = graph_mem.temp_size_in_bytes
+
         if profile_run:
-            run_mean_ms, run_std_ms, _rounds, _warmup = self.run_ms(fn, *args, rounds=rounds, warmup=warmup, **kwargs)
+            res.run_mean_ms, res.run_std_ms, res.rounds, res.warmup = self.run_ms(fn, *args, rounds=rounds, warmup=warmup, **kwargs)
 
         if profile_run_memory:
             def _work():
@@ -324,22 +320,13 @@ class BenchJax:
                     jax.block_until_ready(out)
             rss_peak, gpu_peak = self.practical_memory(_work, gpu_memory=gpu_memory)
 
-        row = BenchJaxRow(
-            compile_ms=float(compile_ms),
-            run_mean_ms=float(run_mean_ms),
-            run_std_ms=float(run_std_ms),
-            rounds=int(_rounds),
-            warmup=int(_warmup),
-            graph_generated_code_size = graph_mem.generated_code_size_in_bytes,
-            graph_peak_memory = graph_mem.peak_memory_in_bytes,
-            graph_temp_size = graph_mem.temp_size_in_bytes,
-            rss_peak_delta_bytes=int(rss_peak),
-            gpu_peak_bytes=int(gpu_peak)
-        )
+            res.rss_peak_delta_bytes = int(rss_peak)
+            res.gpu_peak_bytes = int(gpu_peak)
 
-        self._write_row(name=name, test_nodeid=test_nodeid, backend=backend, row=row)
-        self._print_console(name=name, backend=backend, row=row)
-        return row
+        self._write_row(name=name, test_nodeid=test_nodeid, backend=backend, row=res)
+        self._print_console(name=name, backend=backend, row=res)
+        
+        return res
 
     # ---------- IO ----------
 
