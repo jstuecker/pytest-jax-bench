@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Optional
+from my_jax_utils import folded_constants_bytes 
 
 import pytest
 import subprocess
@@ -208,19 +209,23 @@ class BenchJax:
         self.default_rounds = int(default_rounds)
         self.default_warmup = int(default_warmup)
         self.default_gpu_memory = bool(default_gpu_memory)
+        self._fn = None
+        self._jitted = None
+        self._lowered = None
         self._compiled = None  # may be set by compile_time()
+        
 
     # ---------- measurement pieces ----------
 
     def compile_time_ms(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> float:
         """Return compilation time in milliseconds (excluding lowering)."""
         jitted = jax.jit(fn)
+        jax.clear_caches()
         t1 = time.perf_counter()
         lowered = jitted.lower(*args, **kwargs)
         compiled = lowered.compile()
         t2 = time.perf_counter()
-        self._compiled = compiled
-        return (t2 - t1) * 1000.0
+        return (t2 - t1) * 1000.0, lowered, compiled
 
     def run_ms(self, fn: Callable[..., Any], *args: Any,
                rounds: Optional[int] = None, warmup: Optional[int] = None, **kwargs: Any) -> tuple[float, float, int, int]:
@@ -250,12 +255,6 @@ class BenchJax:
         std = math.sqrt(var)
         return mean, std, rounds, warmup
 
-    def graph_memory_analysis(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> int:
-        lowered = jax.jit(fn).lower(*args, **kwargs)
-        mem = lowered.compile().memory_analysis()
-
-        return mem
-
     def practical_memory(self, run_callable: Callable[[], Any], gpu_memory: bool = False) -> tuple[int, int]:
         pid = os.getpid()
         proc = psutil.Process(pid) if psutil is not None else None
@@ -282,8 +281,6 @@ class BenchJax:
         *args: Any,
         name: Optional[str] = None,
         # choose what to profile
-        profile_compile: bool = True,
-        profile_graph: bool = True,
         profile_run: bool = True,
         profile_run_memory: bool = True,
         # knobs declared per-test
@@ -313,11 +310,8 @@ class BenchJax:
         rss_peak = 0
         gpu_peak = 0
 
-        if profile_compile:
-            compile_ms = self.compile_time_ms(fn, *args, **kwargs)
-
-        if profile_graph:
-            graph_mem = self.graph_memory_analysis(fn, *args, **kwargs)
+        compile_ms, lowered, compiled = self.compile_time_ms(fn, *args, **kwargs)
+        graph_mem = compiled.memory_analysis()
 
         if profile_run:
             run_mean_ms, run_std_ms, _rounds, _warmup = self.run_ms(fn, *args, rounds=rounds, warmup=warmup, **kwargs)
@@ -381,7 +375,7 @@ class BenchJax:
         # Data: tab-separated numeric values (suitable for np.loadtxt with delimiter='	').
         columns = [
             "Run ID",
-            "Commit",
+            "Commit ('+' means with local changes)",
             "Commit Run",
             "Compile Time (ms)",
             "Mean Run Time (ms)",
