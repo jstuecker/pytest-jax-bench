@@ -57,6 +57,9 @@ def pytest_configure(config: pytest.Config) -> None:
 
 @dataclass
 class BenchJaxRow:
+    run_id: int = 0
+    commit: str = "unknown"
+    commit_run: int = 0
     compile_ms: float = 0.
     run_mean_ms: float = 0.
     run_std_ms: float = 0.
@@ -67,6 +70,40 @@ class BenchJaxRow:
     graph_temp_size: int = 0
     rss_peak_delta_bytes: int = 0
     gpu_peak_bytes: int = 0
+
+    def column_descriptions(self) -> tuple[str]:
+        return (
+            "Run ID",
+            "Commit ('+' means with local changes)",
+            "Commit Run",
+            "Compile Time (ms)",
+            "Mean Run Time (ms)",
+            "Std. Dev. Run Time (ms)",
+            "Run Rounds",
+            "Warmup Rounds",
+            "Graph Peak Memory (MB)",
+            "Graph Generated Code Size (MB)",
+            "Graph Temp Size (MB)",
+            "rss_peak_delta_bytes (MB)",
+            "gpu_peak_bytes (MB)",
+        )
+    
+    def formatted_line(self) -> str:
+        return (
+                f"{self.run_id:10d}"
+                f"{self.commit:>10s}"
+                f"{self.commit_run:10}"
+                f"{self.compile_ms:10.2f}"
+                f"{self.run_mean_ms:10.2f}"
+                f"{self.run_std_ms:10.2f}"
+                f"{self.rounds:10}"
+                f"{self.warmup:10}"
+                f"{self.graph_peak_memory/1024.**2:10.2f}"
+                f"{self.graph_generated_code_size/1024.**2:10.2f}"
+                f"{self.graph_temp_size/1024.**2:10.2f}"
+                f"{self.rss_peak_delta_bytes/1024.**2:10.2f}"
+                f"{self.gpu_peak_bytes/1024.**2:10.2f}"
+        )
 
 
 # ---------------------------
@@ -325,8 +362,30 @@ class BenchJax:
 
         self._write_row(name=name, test_nodeid=test_nodeid, backend=backend, row=res)
         self._print_console(name=name, backend=backend, row=res)
-        
+
         return res
+    
+    def _get_run_data(self, path):
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as _f:
+                    lines = _f.readlines()
+            except Exception:
+                lines = []
+        else:
+            lines = []
+
+        is_new = len(lines) == 0
+
+        # Data lines are those that are not comments (#) and not the column name lines (starting with '(')
+        existing_data_lines = [l for l in lines if l.strip() and not l.lstrip().startswith("#") and not l.lstrip().startswith("(")]
+        run_id = len(existing_data_lines)
+
+        current_commit = _git_commit_short()
+        # count occurences of current_commit in existing data lines
+        commit_run = sum(1 for l in existing_data_lines if re.search(rf"\b{re.escape(current_commit)}\b", l)) 
+
+        return run_id, current_commit, commit_run, is_new
 
     # ---------- IO ----------
 
@@ -339,80 +398,27 @@ class BenchJax:
 
     def _write_row(self, *, name: str, test_nodeid: str, backend: str, row: BenchJaxRow) -> None:
         path = self._outfile(test_nodeid, name)
-        # Read existing file (if any) to determine run-id and per-commit run count
-        if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as _f:
-                    _lines = _f.readlines()
-            except Exception:
-                _lines = []
-        else:
-            _lines = []
 
-        # Data lines are those that are not comments (#) and not the column name lines (starting with '(')
-        existing_data_lines = [l for l in _lines if l.strip() and not l.lstrip().startswith("#") and not l.lstrip().startswith("(")]
-        run_id = len(existing_data_lines)
-
-        current_commit = _git_commit_short()
-        # count occurences of current_commit in existing data lines
-        commit_run = sum(1 for l in existing_data_lines if re.search(rf"\b{re.escape(current_commit)}\b", l))
-
-        is_new = len(_lines) == 0
-        # Header: human-friendly comments, then a single commented column line.
-        # Data: tab-separated numeric values (suitable for np.loadtxt with delimiter='	').
-        columns = [
-            "Run ID",
-            "Commit ('+' means with local changes)",
-            "Commit Run",
-            "Compile Time (ms)",
-            "Mean Run Time (ms)",
-            "Std. Dev. Run Time (ms)",
-            "Run Rounds",
-            "Warmup Rounds",
-            "Graph Peak Memory (MB)",
-            "Graph Generated Code Size (MB)",
-            "Graph Temp Size (MB)",
-            "rss_peak_delta_bytes (MB)",
-            "gpu_peak_bytes (MB)",
-        ]
+        row.run_id, row.commit, row.commit_run, is_new = self._get_run_data(path)
 
         with open(path, "a", encoding="utf-8") as f:
             if is_new:
+                # Add a header
                 f.write(f"# pytest-jax-bench\n")
                 f.write(f"# created: {_now_iso()}\n")
                 f.write(f"# test_nodeid: {test_nodeid}\n")
                 f.write(f"# name: {name}\n")
                 f.write(f"# backend: {backend}\n")
-                # include commit in the header metadata for clarity
-                f.write(f"# First commit: {current_commit}\n")
-                # f.write("# " + "\t".join(columns) + "\n")
-                for i,c in enumerate(columns):
+                f.write(f"# First commit: {row.commit}\n")
+                for i,c in enumerate(row.column_descriptions()):
                     f.write(f"# ({i+1:2d}) {c}\n")
-                f.write(f"#     ( 1) ")
-                for i in range(1, len(columns)):
+                f.write(f"#")
+                for i in range(0, len(row.column_descriptions())):
                     f.write(f"     ({i+1:2d}) ")
                 f.write("\n")
-            # format: ms with .2f, ints as decimal
-            # Layout: run_id (int), commit (7-char), commit_run (int), then numeric fields.
-            # Keep similar field widths to the original layout for readability.
             
-            commit = current_commit
-            line = (
-                f"{run_id:10d}"
-                f"{commit:>10s}"
-                f"{commit_run:10}"
-                f"{row.compile_ms:10.2f}"
-                f"{row.run_mean_ms:10.2f}"
-                f"{row.run_std_ms:10.2f}"
-                f"{row.rounds:10}"
-                f"{row.warmup:10}"
-                f"{row.graph_peak_memory/1024.**2:10.2f}"
-                f"{row.graph_generated_code_size/1024.**2:10.2f}"
-                f"{row.graph_temp_size/1024.**2:10.2f}"
-                f"{row.rss_peak_delta_bytes/1024.**2:10.2f}"
-                f"{row.gpu_peak_bytes/1024.**2:10.2f}"
-            )
-            f.write(line + "\n")
+            # Add a new line
+            f.write(row.formatted_line() + "\n")
 
     def _print_console(self, *, name: str, backend: str, row: BenchJaxRow) -> None:
         # Print a summary when -v/--verbose is used
