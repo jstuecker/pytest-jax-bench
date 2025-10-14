@@ -118,13 +118,15 @@ def _num_elements(type_str: str) -> Optional[int]:
 def _now_iso() -> str:
     return datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
-
 def _git_commit_short() -> str:
     """Return short git commit id (7 chars) or 'unknown' if not available."""
     try:
         # Use git directly to avoid adding heavy deps. This will fail cleanly if not a git repo.
-        out = subprocess.check_output(["git", "rev-parse", "--short=7", "HEAD"], stderr=subprocess.DEVNULL)
-        return out.decode("utf-8").strip()
+        out = subprocess.check_output(["git", "describe", "--always", "--dirty"], stderr=subprocess.DEVNULL)
+        out = out.decode("utf-8").strip()
+        if out[-6:] == "-dirty":
+            out = out[:-6] + "+"
+        return out
     except Exception:
         return "unknown"
 
@@ -372,7 +374,7 @@ class BenchJax:
 
         current_commit = _git_commit_short()
         # count occurences of current_commit in existing data lines
-        commit_run = sum(1 for l in existing_data_lines if re.search(rf"\b{current_commit}\b", l))
+        commit_run = sum(1 for l in existing_data_lines if re.search(rf"\b{re.escape(current_commit)}\b", l))
 
         is_new = len(_lines) == 0
         # Header: human-friendly comments, then a single commented column line.
