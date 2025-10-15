@@ -36,7 +36,6 @@ except Exception as e:
 # ---------------------------
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    # Only keep output-dir as a CLI option. All other knobs are per-test via the fixture.
     group = parser.getgroup("bench-jax")
     group.addoption(
         "--bench-jax-output-dir",
@@ -45,11 +44,23 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Directory for output files (default: .benchmarks)",
     )
 
-
+benchmarks = {}
 def pytest_configure(config: pytest.Config) -> None:
+    global benchmarks
+    benchmarks = {}
     outdir = config.getoption("--bench-jax-output-dir")
     os.makedirs(outdir, exist_ok=True)
 
+def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus : pytest.ExitCode, config: pytest.Config) -> None:
+    outdir = config.getoption("--bench-jax-output-dir")
+    terminalreporter.write_line(f"{config.getoption("-v")}")
+    if config.getoption("-v") >= 0:
+        terminalreporter.write_sep("=", "JAX benchmark results")
+        for test_nodeid, path in benchmarks.items():
+            terminalreporter.write_line(f"{test_nodeid} -> {path}")
+
+    # terminalreporter.write_sep("-", f"JAX benchmark results in {outdir}")
+    # terminalreporter.write_line(f"To compare results across commits, use e.g.: {benchmarks}")
 
 # ---------------------------
 # Core measurement container
@@ -57,6 +68,8 @@ def pytest_configure(config: pytest.Config) -> None:
 
 @dataclass
 class BenchJaxRow:
+    node_id: str = ""
+
     run_id: int = 0
     commit: str = "unknown"
     commit_run: int = 0
@@ -330,7 +343,6 @@ class BenchJax:
         All numeric columns are always present; if a measurement was skipped its value is 0.
         Times are in **milliseconds**.
         """
-        test_nodeid = self.request.node.nodeid
         backend = _get_backend()
         name = name or getattr(fn, "__name__", "anonymous")
 
@@ -360,7 +372,7 @@ class BenchJax:
             res.rss_peak_delta_bytes = int(rss_peak)
             res.gpu_peak_bytes = int(gpu_peak)
 
-        self._write_row(name=name, test_nodeid=test_nodeid, backend=backend, row=res)
+        self._write_row(name=name, backend=backend, row=res)
         self._print_console(name=name, backend=backend, row=res)
 
         return res
@@ -396,8 +408,9 @@ class BenchJax:
         nm = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
         return os.path.join(self.output_dir, f"{node}_{nm}.csv")
 
-    def _write_row(self, *, name: str, test_nodeid: str, backend: str, row: BenchJaxRow) -> None:
-        path = self._outfile(test_nodeid, name)
+    def _write_row(self, *, name: str, backend: str, row: BenchJaxRow) -> None:
+        row.node_id = self.request.node.nodeid
+        path = self._outfile(row.node_id, name)
 
         row.run_id, row.commit, row.commit_run, is_new = self._get_run_data(path)
 
@@ -406,7 +419,7 @@ class BenchJax:
                 # Add a header
                 f.write(f"# pytest-jax-bench\n")
                 f.write(f"# created: {_now_iso()}\n")
-                f.write(f"# test_nodeid: {test_nodeid}\n")
+                f.write(f"# test_nodeid: {row.node_id}\n")
                 f.write(f"# name: {name}\n")
                 f.write(f"# backend: {backend}\n")
                 f.write(f"# First commit: {row.commit}\n")
@@ -419,28 +432,30 @@ class BenchJax:
             
             # Add a new line
             f.write(row.formatted_line() + "\n")
+        
+        benchmarks[row.node_id] = path
 
-    def _print_console(self, *, name: str, backend: str, row: BenchJaxRow) -> None:
-        # Print a summary when -v/--verbose is used
-        try:
-            verbose = int(self.config.getoption("verbose") or 0)
-        except Exception:
-            verbose = 0
-        if verbose <= 0:
-            return
-        rep = self.config.pluginmanager.getplugin("terminalreporter")
-        msg = (
-            f"[bench_jax] {name} (backend={backend}) "
-            f"compile={row.compile_ms:.2f}ms, "
-            f"run={row.run_mean_ms:.2f}±{row.run_std_ms:.2f}ms, "
-            f"rounds={row.rounds}, warmup={row.warmup}, "
-            f"graph_mem={row.graph_mem_bytes_est}B, "
-            f"rss+={row.rss_peak_delta_bytes}B, gpu_peak={row.gpu_peak_bytes}B"
-        )
-        if rep is not None:
-            rep.write_line(msg)
-        else:
-            print(msg)
+    # def _print_console(self, *, name: str, backend: str, row: BenchJaxRow) -> None:
+    #     # Print a summary when -v/--verbose is used
+    #     try:
+    #         verbose = int(self.config.getoption("verbose") or 0)
+    #     except Exception:
+    #         verbose = 0
+    #     if verbose <= 0:
+    #         return
+    #     rep = self.config.pluginmanager.getplugin("terminalreporter")
+    #     msg = (
+    #         f"[bench_jax] {name} (backend={backend}) "
+    #         f"compile={row.compile_ms:.2f}ms, "
+    #         f"run={row.run_mean_ms:.2f}±{row.run_std_ms:.2f}ms, "
+    #         f"rounds={row.rounds}, warmup={row.warmup}, "
+    #         f"graph_mem={row.graph_mem_bytes_est}B, "
+    #         f"rss+={row.rss_peak_delta_bytes}B, gpu_peak={row.gpu_peak_bytes}B"
+    #     )
+    #     if rep is not None:
+    #         rep.write_line(msg)
+    #     else:
+    #         print(msg)
 
 
 @pytest.fixture
