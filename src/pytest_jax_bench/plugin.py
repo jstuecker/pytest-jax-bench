@@ -37,7 +37,6 @@ def pytest_configure(config: pytest.Config) -> None:
     outdir = config.getoption("--bench-jax-output-dir")
     os.makedirs(outdir, exist_ok=True)
 
-
 def select_commit_runs(arr, commit):
     commit_base = commit.rstrip("+")
     mask = np.where((arr["commit"] == commit_base) | (arr["commit"] == commit_base + "+"))[0]
@@ -82,12 +81,22 @@ def _colored_diff(txt, v1, v2, tol=0.):
         color = "grey"
     return _colored(txt, color)
 
+def nodeid_to_path(test_nodeid: str, output_dir: str = ".") -> str:
+    test_file, test_name = test_nodeid.split("::")
+    test_file = re.sub(r"[^A-Za-z0-9._-]+", ":", test_file)
+    test_file = re.sub(r"\.py", "", test_file)
+
+    return os.path.join(output_dir, f"{test_file}::{test_name}.csv")
+
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus : pytest.ExitCode, config: pytest.Config) -> None:
     if config.getoption("-v") >= 0:
+        output_dir = config.getoption("--bench-jax-output-dir")
+
         terminalreporter.write_sep("=", "JAX benchmark results in ms and MB")
 
         entries = []
-        for test_nodeid, path in benchmarks.items():
+        for report in terminalreporter.getreports("passed"):
+            path = nodeid_to_path(report.nodeid, output_dir=output_dir)
             arr = load_bench_data(path)
             new, old = summary_select_commits(arr)
             if new is None: 
@@ -98,7 +107,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             def str_and_len(s):
                 return s, len(s)
 
-            entry["Test"] = str_and_len(test_nodeid)
+            entry["Test"] = str_and_len(report.nodeid)
             entry["Commit(Run)"] = str_and_len(f'{old["commit"]}({old["commit_run"]})->{new["commit"]}({new["commit_run"]})')
 
             def compare_perf(key, std=0., tol=None, only_different=False):
@@ -156,45 +165,6 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
 # ---------------------------
 # StableHLO memory estimate utils (very rough)
 # ---------------------------
-
-_DTYPE_BYTES = {
-    "pred": 1,
-    "i1": 1, "i8": 1, "u8": 1,
-    "i16": 2, "u16": 2, "f16": 2, "bf16": 2,
-    "i32": 4, "u32": 4, "f32": 4,
-    "i64": 8, "u64": 8, "f64": 8,
-}
-
-_COMPLEX_BYTES = {
-    "complex<f32>": 8,
-    "complex<f64>": 16,
-}
-
-_TENSOR_RE = re.compile(r"tensor<([^>]+)>")
-
-
-def _dtype_nbytes(type_str: str) -> Optional[int]:
-    if type_str.startswith("complex<"):
-        base = type_str.split("x")[-1]
-        return _COMPLEX_BYTES.get(base, None)
-    base = type_str.split("x")[-1]
-    return _DTYPE_BYTES.get(base, None)
-
-def _num_elements(type_str: str) -> Optional[int]:
-    parts = type_str.split("x")
-    dims = parts[:-1]
-    if not dims:
-        return 1
-    prod = 1
-    for d in dims:
-        d = d.strip()
-        if d in {"*", "?"}:  # dynamic/unknown
-            return None
-        try:
-            prod *= int(d)
-        except ValueError:
-            return None
-    return prod
 
 def _now_iso() -> str:
     # Use timezone-aware UTC datetime to avoid deprecation of utcnow()
@@ -358,16 +328,10 @@ class BenchJax:
 
     # ---------- IO ----------
 
-    def _outfile(self, test_nodeid: str) -> str:
-        test_file, test_name = test_nodeid.split("::")
-        test_file = re.sub(r"[^A-Za-z0-9._-]+", ":", test_file)
-        test_file = re.sub(r"\.py", "", test_file)
-
-        return os.path.join(self.output_dir, f"{test_file}::{test_name}.csv")
 
     def _write_row(self, *, name: str, backend: str, row: BenchData) -> None:
         row.node_id = self.request.node.nodeid
-        path = self._outfile(row.node_id)
+        path = nodeid_to_path(row.node_id, output_dir=self.output_dir)
 
         row.run_id, row.commit, row.commit_run = self._get_run_data(path)
 
