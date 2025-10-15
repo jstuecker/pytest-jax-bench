@@ -52,13 +52,93 @@ def pytest_configure(config: pytest.Config) -> None:
     outdir = config.getoption("--bench-jax-output-dir")
     os.makedirs(outdir, exist_ok=True)
 
+
+def summary_select_commits(arr):
+    if len(arr) == 0:
+        return None, None
+
+    new_data = arr[-1]
+
+    # Find the comparison data
+    # If there is no other entry with the same commit hash, we consider the last entry of previous commit
+    # If the commit is dirty, we use the first entry with the same commit hash
+    commit = new_data["commit"]
+
+    def select_commits(arr, commit):
+        commit_base = commit.rstrip("+")
+        mask = np.where((arr["commit"] == commit_base) | (arr["commit"] == commit_base + "+"))[0]
+        return arr[mask]
+
+    data_same_commit = select_commits(arr, commit)
+
+    if len(data_same_commit) >= 1:
+        comparison_data = data_same_commit[0]
+    elif len(arr) >= 2:
+        data_last_commit = arr[-2]["commit"]
+    else: # as a fallback compare with self (to keep code simple)
+        data_last_commit = new_data
+
+    return new_data, comparison_data
+
+def _colored(s: str, color: str) -> str:
+    # Respect NO_COLOR or dumb terminals
+    if os.getenv("NO_COLOR") is not None or os.getenv("TERM") == "dumb":
+        return s
+    colors = {"green": "\x1b[32m", "yellow": "\x1b[33m", "red": "\x1b[31m", "reset": "\x1b[0m",
+              "grey": "\x1b[90m"}
+    return f"{colors.get(color, '')}{s}{colors['reset']}"
+
+def _colored_diff(txt, v1, v2, tol=0.):
+    if v2 < v1 - tol:
+        color = "green"
+    elif v2 > v1 + tol:
+        color = "red"
+    else:
+        color = "grey"
+    return _colored(txt, color)
+
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus : pytest.ExitCode, config: pytest.Config) -> None:
     outdir = config.getoption("--bench-jax-output-dir")
     terminalreporter.write_line(f"{config.getoption("-v")}")
     if config.getoption("-v") >= 0:
-        terminalreporter.write_sep("=", "JAX benchmark results")
+        terminalreporter.write_sep("=", "JAX benchmark results in ms and MB")
+
         for test_nodeid, path in benchmarks.items():
-            terminalreporter.write_line(f"{test_nodeid} -> {path}")
+            arr = load_bench_data(path)
+            new, old = summary_select_commits(arr)
+            if new is None: 
+                continue
+            
+            txt = f'{test_nodeid} com:{old["commit"]}({old["commit_run"]})->{new["commit"]}({new["commit_run"]})'
+
+            def str_compare_perf(key, std=0., tol=None, only_different=False, label=None):
+                if tol is None: tol = 2.*std
+                label = key if label is None else label
+                v1, v2 = old[key], new[key]
+                if only_different and np.abs(v1 - v2) <= std*2.:
+                    return ""
+                if std > 0.:
+                    txt = f"{label}({v1:.2f}->{v2:.2f}+-{std:.2f})"
+                else:
+                    txt = f"{label}({v1:.2f}->{v2:.2f})"
+                return _colored_diff(txt, v1, v2, tol=tol)
+            
+            def str_compare_mem(key, only_different=False, label=None):
+                label = key if label is None else label
+                v1, v2 = old[key], new[key]
+                if only_different and np.abs(v1 - v2) <= 1024*1024:
+                    return ""
+                txt = f"{label}({v1:.2f}->{v2:.2f})"
+                return _colored_diff(txt, v1, v2)
+
+            txt += " " + str_compare_perf("compile_ms", tol=new["compile_ms"]*0.1, label="compile")
+            txt += " " + str_compare_perf("run_mean_ms", std=np.sqrt(new["run_std_ms"]**2+old["run_std_ms"]**2), label="run")
+            txt += " " + str_compare_mem("graph_peak_memory_mb", label="mem_mb")
+
+            terminalreporter.write_line(txt)
+
+
+        #     terminalreporter.write_line(f"{test_nodeid} -> {path}")
 
     # terminalreporter.write_sep("-", f"JAX benchmark results in {outdir}")
     # terminalreporter.write_line(f"To compare results across commits, use e.g.: {benchmarks}")
