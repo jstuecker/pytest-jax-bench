@@ -423,16 +423,19 @@ class BenchJax:
 
     # ---------- IO ----------
 
-    def _outfile(self, test_nodeid: str, name: str) -> str:
+    def _outfile(self, test_nodeid: str) -> str:
         test_file, test_name = test_nodeid.split("::")
+        test_file = re.sub(r"[^A-Za-z0-9._-]+", ":", test_file)
+        test_file = re.sub(r"\.py", "", test_file)
         node = re.sub(r"[^A-Za-z0-9._-]+", "_", test_name)
         # node = re.sub(r"\.py", "", node)
-        nm = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
-        return os.path.join(self.output_dir, f"{node}_{nm}.csv")
+        # nm = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
+        # return os.path.join(self.output_dir, f"{test_file}_{test_name}.csv")
+        return os.path.join(self.output_dir, f"{test_file}::{test_name}.csv")
 
     def _write_row(self, *, name: str, backend: str, row: BenchData) -> None:
         row.node_id = self.request.node.nodeid
-        path = self._outfile(row.node_id, name)
+        path = self._outfile(row.node_id)
 
         row.run_id, row.commit, row.commit_run = self._get_run_data(path)
 
