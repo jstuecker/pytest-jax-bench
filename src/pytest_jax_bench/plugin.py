@@ -7,10 +7,14 @@ from datetime import datetime
 from typing import Any, Callable, Optional
 # from my_jax_utils import folded_constants_bytes 
 from .data import BenchData, load_bench_data
+from .utils import folded_constants_bytes
 
 import pytest
 import subprocess
 import numpy as np
+
+import math
+import warnings
 
 # Optional runtime deps
 try:  # process memory (RSS)
@@ -98,8 +102,6 @@ def _colored_diff(txt, v1, v2, tol=0.):
     return _colored(txt, color)
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus : pytest.ExitCode, config: pytest.Config) -> None:
-    outdir = config.getoption("--bench-jax-output-dir")
-    terminalreporter.write_line(f"{config.getoption("-v")}")
     if config.getoption("-v") >= 0:
         terminalreporter.write_sep("=", "JAX benchmark results in ms and MB")
 
@@ -114,8 +116,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
 
             def str_and_len(s):
                 return s, len(s)
-            
-            # label = f'{test_nodeid} com:{old["commit"]}({old["commit_run"]})->{new["commit"]}({new["commit_run"]})'
+
             entry["Test"] = str_and_len(test_nodeid)
             entry["Commit(Run)"] = str_and_len(f'{old["commit"]}({old["commit_run"]})->{new["commit"]}({new["commit_run"]})')
 
@@ -130,16 +131,20 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                     txt = f"{v1:.2f}->{v2:.2f}"
                 return _colored_diff(txt, v1, v2, tol=tol), len(txt)
             
-            def compare_mem(key, only_different=False):
+            def compare_mem(key, only_different=False, min_mb=0.):
                 v1, v2 = old[key], new[key]
                 if only_different and v1 == v2:
-                    return ""
-                txt = f"{v1:.3g}->{v2:.3g}"
+                    txt = ""
+                elif max(v1, v2) >= min_mb:
+                    txt = f"{v1:.3g}->{v2:.3g}"
+                else:
+                    txt = ""
                 return _colored_diff(txt, v1, v2), len(txt)
 
             entry["Compile(ms)"] = compare_perf("compile_ms", tol=new["compile_ms"]*0.1)
             entry["Run(ms)"] = compare_perf("run_mean_ms", std=np.sqrt(new["run_std_ms"]**2+old["run_std_ms"]**2))
             entry["Memory(MB)"] = compare_mem("graph_peak_memory_mb")
+            entry["Constants(MB)"] = compare_mem("graph_constants", min_mb=0.1)
 
             entries.append(entry)
 
@@ -338,7 +343,6 @@ class BenchJax:
             t1 = time.perf_counter()
             times.append((t1 - t0) * 1000.0)
 
-        import math
         n = len(times) or 1
         mean = sum(times) / n
         var = sum((x - mean) ** 2 for x in times) / (n - 1 if n > 1 else 1)
@@ -395,9 +399,16 @@ class BenchJax:
         res.compile_ms, lowered, compiled = self.compile_time_ms(fn, *args, **kwargs)
         graph_mem = compiled.memory_analysis()
 
-        res.graph_generated_code_size = graph_mem.generated_code_size_in_bytes
+        res.graph_constants = graph_mem.generated_code_size_in_bytes
         res.graph_peak_memory = graph_mem.peak_memory_in_bytes
         res.graph_temp_size = graph_mem.temp_size_in_bytes
+        try:
+            # It seems likely the handling of jax's folded constants will change in the future
+            # Therefore, we catch exceptions here for now...
+            res.graph_constant_memory = folded_constants_bytes(lowered)
+        except Exception as e:
+            warnings.warn(f"Failed to compute folded_constants_bytes ({e})", RuntimeWarning)
+            res.graph_constant_memory = 0
 
         if profile_run:
             res.run_mean_ms, res.run_std_ms, res.rounds, res.warmup = self.run_ms(fn, *args, rounds=rounds, warmup=warmup, **kwargs)
@@ -435,8 +446,6 @@ class BenchJax:
             commit_run = np.max(runs["commit_run"]) + 1
         else:
             commit_run = 0
-
-        print("data:", data)
 
         return run_id, current_commit, commit_run
 

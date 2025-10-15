@@ -17,7 +17,7 @@ class BenchData:
     run_std_ms: float = 0.
     rounds: int = 0
     warmup: int = 0
-    graph_generated_code_size: int = 0
+    graph_constants: int = 0
     graph_peak_memory: int = 0
     graph_temp_size: int = 0
     rss_peak_delta_bytes: int = 0
@@ -34,7 +34,7 @@ class BenchData:
             "Run Rounds",
             "Warmup Rounds",
             "Graph Peak Memory (MB)",
-            "Graph Generated Code Size (MB)",
+            "Graph Constants Size (MB)",
             "Graph Temp Size (MB)",
             "rss_peak_delta_bytes (MB)",
             "gpu_peak_bytes (MB)",
@@ -51,7 +51,7 @@ class BenchData:
                 f"{self.rounds:10}"
                 f"{self.warmup:10}"
                 f"{self.graph_peak_memory/1024.**2:10.2f}"
-                f"{self.graph_generated_code_size/1024.**2:10.2f}"
+                f"{self.graph_constants/1024.**2:10.2f}"
                 f"{self.graph_temp_size/1024.**2:10.2f}"
                 f"{self.rss_peak_delta_bytes/1024.**2:10.2f}"
                 f"{self.gpu_peak_bytes/1024.**2:10.2f}"
@@ -69,7 +69,7 @@ class BenchData:
             ("rounds", np.int64),
             ("warmup", np.int64),
             ("graph_peak_memory_mb", np.float64),
-            ("graph_generated_code_size_mb", np.float64),
+            ("graph_constants", np.float64),
             ("graph_temp_size_mb", np.float64),
             ("rss_peak_delta_bytes", np.float64),
             ("gpu_peak_bytes", np.float64),
