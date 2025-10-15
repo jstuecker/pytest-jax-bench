@@ -127,6 +127,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             entry["Eager(ms)"] = compare_perf("eager_mean_ms", std=np.sqrt(new["eager_std_ms"]**2+old["eager_std_ms"]**2), only_different=True)
             entry["Memory(MB)"] = compare_mem("graph_peak_memory_mb")
             entry["Constants(MB)"] = compare_mem("graph_constants", min_mb=0.1)
+            entry["Eager(MB)"] = compare_mem("eager_peak_memory_mb")
 
             entries.append(entry)
 
@@ -268,10 +269,18 @@ class BenchJax:
         return np.mean(times), np.std(times)
     
     def profile_eager(self, fn, *args, **kwargs):
-        # warmup
-        for _ in range(self.eager_warmup):
+        # Capture memory on first run
+        if self.eager_warmup > 0:
+            fn(*args, **kwargs).block_until_ready()
+            eager_peak_mem = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
+        else:
+            eager_peak_mem = None
+
+        for _ in range(self.eager_warmup - 1):
             fn(*args, **kwargs)
         jax.block_until_ready(fn(*args, **kwargs))
+
+        
 
         times = []
         for _ in range(self.eager_rounds):
@@ -280,8 +289,10 @@ class BenchJax:
             jax.block_until_ready(out)
             t1 = time.perf_counter()
             times.append((t1 - t0) * 1000.0)
+            if eager_peak_mem is None:
+                eager_peak_mem = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
 
-        return np.mean(times), np.std(times)
+        return np.mean(times), np.std(times), eager_peak_mem
 
     # ---------- high-level orchestration ----------
 
@@ -298,6 +309,10 @@ class BenchJax:
 
         res = BenchData(jit_rounds=self.run_rounds, jit_warmup=self.run_warmup,
                         eager_rounds=self.eager_rounds, eager_warmup=self.eager_warmup)
+        
+        # First do eager profiling, to get a good idea of the memory
+        if self.eager_rounds > 0:
+            res.eager_mean_ms, res.eager_std_ms, res.eager_peak_memory = self.profile_eager(fn, *args, **kwargs)
 
         res.compile_ms, lowered, compiled = self.compile_time_ms(fn, *args, **kwargs)
         graph_mem = compiled.memory_analysis()
@@ -315,8 +330,6 @@ class BenchJax:
 
         if self.run_rounds > 0:
             res.jit_mean_ms, res.jit_std_ms = self.profile_run(fn, *args, **kwargs)
-        if self.eager_rounds > 0:
-            res.eager_mean_ms, res.eager_std_ms = self.profile_eager(fn, *args, **kwargs)
 
         if write:
             self._write_row(name=name, backend=backend, row=res)

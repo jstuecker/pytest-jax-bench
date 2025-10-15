@@ -9,6 +9,12 @@ pip install -e . # from repo root
 pip install .[mem]
 ```
 
+## Useful
+```bash
+pip install pytest-forked
+pytest --forked
+```
+
 ## Todo:
 * Add GPU to header
 
