@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 # from my_jax_utils import folded_constants_bytes 
 from .data import BenchData, load_bench_data
@@ -214,7 +214,8 @@ def _num_elements(type_str: str) -> Optional[int]:
     return prod
 
 def _now_iso() -> str:
-    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    # Use timezone-aware UTC datetime to avoid deprecation of utcnow()
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 def _git_commit_short() -> str:
     """Return short git commit id (7 chars) or 'unknown' if not available."""
