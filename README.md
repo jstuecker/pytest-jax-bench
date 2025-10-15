@@ -18,9 +18,6 @@ pytest --forked
 ## Todo:
 * Add GPU to header
 
-* Measure Constant folding
-* Fix memory usage calculation
-* Add nice stdout output
-* Add helper functions for reading the csv
+* weird filenames
 * Make nice plots
 * cli for plots?

@@ -129,7 +129,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 v1, v2 = old[key], new[key]
                 if only_different and v1 == v2:
                     txt = ""
-                elif max(v1, v2) >= min_mb:
+                elif max(np.nan_to_num(v1,np.inf), np.nan_to_num(v2,np.inf)) >= min_mb:
                     txt = f"{v1:.3g}->{v2:.3g}"
                 else:
                     txt = ""
@@ -201,6 +201,7 @@ class BenchJax:
     def __init__(self, request: pytest.FixtureRequest, config: pytest.Config,
                  run_rounds: int = 20, run_warmup: int = 3, eager_rounds = 5, eager_warmup = 1) -> None:
         self.request = request
+        self.forked = config.getoption("--forked", False)
         self.config = config
         self.output_dir = config.getoption("--bench-jax-output-dir")
         self.run_rounds = int(run_rounds)
@@ -241,7 +242,7 @@ class BenchJax:
             t1 = time.perf_counter()
             times.append((t1 - t0) * 1000.0)
 
-        return np.mean(times), np.std(times)
+        return np.mean(times), np.std(times) if self.run_rounds > 1 else np.nan
     
     def profile_eager(self, fn, *args, **kwargs):
         # Capture memory on first run
@@ -255,8 +256,6 @@ class BenchJax:
             fn(*args, **kwargs)
         jax.block_until_ready(fn(*args, **kwargs))
 
-        
-
         times = []
         for _ in range(self.eager_rounds):
             t0 = time.perf_counter()
@@ -267,7 +266,12 @@ class BenchJax:
             if eager_peak_mem is None:
                 eager_peak_mem = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
 
-        return np.mean(times), np.std(times), eager_peak_mem
+        if not self.forked:
+            # Profile is invalid without forking, because peakr memory may be inherited from other
+            # processes.
+            eager_peak_mem = np.nan 
+
+        return np.mean(times), np.std(times), eager_peak_mem if self.run_rounds > 1 else np.nan
 
     # ---------- high-level orchestration ----------
 

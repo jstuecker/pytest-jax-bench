@@ -12,17 +12,17 @@ class BenchData:
     run_id: int = 0
     commit: str = "unknown"
     commit_run: int = 0
-    compile_ms: float = 0.
+    compile_ms: float = np.nan
 
-    jit_mean_ms: float = 0.
-    jit_std_ms: float = 0.
-    eager_mean_ms: float = 0.
-    eager_std_ms: float = 0.
+    jit_mean_ms: float = np.nan
+    jit_std_ms: float = np.nan
+    eager_mean_ms: float = np.nan
+    eager_std_ms: float = np.nan
 
-    graph_constants: int = 0
-    graph_peak_memory: int = 0
-    graph_temp_size: int = 0
-    eager_peak_memory: int = 0
+    graph_constants: int = np.nan
+    graph_peak_memory: int = np.nan
+    graph_temp_size: int = np.nan
+    eager_peak_memory: int = np.nan
 
     jit_rounds: int = 0
     jit_warmup: int = 0
