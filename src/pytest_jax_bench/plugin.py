@@ -90,9 +90,13 @@ def nodeid_to_path(test_nodeid: str, output_dir: str = ".") -> str:
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus : pytest.ExitCode, config: pytest.Config) -> None:
     if config.getoption("-v") >= 0:
+        forked = config.getoption("--forked", False)
+
         output_dir = config.getoption("--bench-jax-output-dir")
 
         terminalreporter.write_sep("=", "JAX benchmark results in ms and MB")
+        if not forked:
+            terminalreporter.write_line(_colored("Warning: Eager mode memory report is only valid when using --forked!", "yellow"))
 
         entries = []
         for report in terminalreporter.getreports("passed"):
@@ -132,11 +136,12 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 return _colored_diff(txt, v1, v2), len(txt)
 
             entry["Compile(ms)"] = compare_perf("compile_ms", tol=new["compile_ms"]*0.1)
-            entry["Jit(ms)"] = compare_perf("run_mean_ms", std=np.sqrt(new["run_std_ms"]**2+old["run_std_ms"]**2))
-            entry["Eager(ms)"] = compare_perf("eager_mean_ms", std=np.sqrt(new["eager_std_ms"]**2+old["eager_std_ms"]**2), only_different=True)
-            entry["Memory(MB)"] = compare_mem("graph_peak_memory_mb")
+            entry["Jit-Run(ms)"] = compare_perf("run_mean_ms", std=np.sqrt(new["run_std_ms"]**2+old["run_std_ms"]**2))
+            entry["Eager-Run(ms)"] = compare_perf("eager_mean_ms", std=np.sqrt(new["eager_std_ms"]**2+old["eager_std_ms"]**2), only_different=True)
+            entry["Jit-Mem(MB)"] = compare_mem("graph_peak_memory_mb")
             entry["Constants(MB)"] = compare_mem("graph_constants", min_mb=0.1)
-            entry["Eager(MB)"] = compare_mem("eager_peak_memory_mb")
+            eager_str = "Eager-Mem(MB)" if forked else _colored("Eager-Mem(MB) (invalid!)", "yellow")
+            entry[eager_str] = compare_mem("eager_peak_memory_mb")
 
             entries.append(entry)
 
@@ -359,30 +364,6 @@ class BenchJax:
 
 @pytest.fixture
 def bench_jax(request: pytest.FixtureRequest):
-    """Factory fixture: call `bench_jax(...)` in your test to configure defaults.
-
-    Examples
-    --------
-    >>> def test_demo(bench_jax):
-    ...     import jax.numpy as jnp
-    ...     def f(x):
-    ...         return (jnp.sin(x) * jnp.cos(x)).sum()
-    ...     x = jnp.ones((4096, 4096), dtype=jnp.float32)
-    ...     # Configure per-test defaults here
-    ...     jb = bench_jax(rounds=25, warmup=5, gpu_memory=True)
-    ...     # Choose which parts to profile per call (defaults: all True)
-    ...     jb.measure(f, x, name="trig_sum", profile_graph=True, profile_run=True)
-
-    You can also skip configuration and use built-in defaults:
-
-    >>> def test_demo2(bench_jax):
-    ...     import jax.numpy as jnp
-    ...     def f(x):
-    ...         return jnp.tanh(x @ x.T).sum()
-    ...     x = jnp.ones((1024, 1024), dtype=jnp.float32)
-    ...     bench = bench_jax()  # defaults: rounds=20, warmup=3, gpu_memory=False
-    ...     bench.measure(f, x, name="matmul_tanh", profile_run_memory=False)
-    """
     config = request.config
 
     def _factory(*, rounds: int = 20, warmup: int = 3, gpu_memory: bool = False) -> BenchJax:
