@@ -297,18 +297,17 @@ class BenchJax:
     """
 
     def __init__(self, request: pytest.FixtureRequest, config: pytest.Config,
-                 default_rounds: int = 20, default_warmup: int = 3, default_gpu_memory: bool = False) -> None:
+                 run_rounds: int = 20, run_warmup: int = 3, default_gpu_memory: bool = False) -> None:
         self.request = request
         self.config = config
         self.output_dir = config.getoption("--bench-jax-output-dir")
-        self.default_rounds = int(default_rounds)
-        self.default_warmup = int(default_warmup)
+        self.run_rounds = int(run_rounds)
+        self.run_warmup = int(run_warmup)
         self.default_gpu_memory = bool(default_gpu_memory)
         self._fn = None
         self._jitted = None
         self._lowered = None
         self._compiled = None  # may be set by compile_time()
-        
 
     # ---------- measurement pieces ----------
 
@@ -325,18 +324,15 @@ class BenchJax:
     def run_ms(self, fn: Callable[..., Any], *args: Any,
                rounds: Optional[int] = None, warmup: Optional[int] = None, **kwargs: Any) -> tuple[float, float, int, int]:
         """Return (mean_ms, std_ms, rounds, warmup)."""
-        rounds = int(rounds if rounds is not None else self.default_rounds)
-        warmup = int(warmup if warmup is not None else self.default_warmup)
-
         compiled = self._compiled if self._compiled is not None else jax.jit(fn)
 
         # warmup
-        for _ in range(warmup):
+        for _ in range(self.run_warmup):
             compiled(*args, **kwargs)
         jax.block_until_ready(compiled(*args, **kwargs))
 
         times = []
-        for _ in range(rounds):
+        for _ in range(self.run_rounds):
             t0 = time.perf_counter()
             out = compiled(*args, **kwargs)
             jax.block_until_ready(out)
@@ -347,7 +343,7 @@ class BenchJax:
         mean = sum(times) / n
         var = sum((x - mean) ** 2 for x in times) / (n - 1 if n > 1 else 1)
         std = math.sqrt(var)
-        return mean, std, rounds, warmup
+        return mean, std
 
     def practical_memory(self, run_callable: Callable[[], Any], gpu_memory: bool = False) -> tuple[int, int]:
         pid = os.getpid()
@@ -373,14 +369,6 @@ class BenchJax:
         self,
         fn: Callable[..., Any],
         *args: Any,
-        name: Optional[str] = None,
-        # choose what to profile
-        profile_run: bool = True,
-        profile_run_memory: bool = True,
-        # knobs declared per-test
-        rounds: Optional[int] = None,
-        warmup: Optional[int] = None,
-        gpu_memory: Optional[bool] = None,
         **kwargs: Any,
     ) -> BenchData:
         """Run selected measurements and write one numeric row per call.
@@ -389,12 +377,9 @@ class BenchJax:
         Times are in **milliseconds**.
         """
         backend = _get_backend()
-        name = name or getattr(fn, "__name__", "anonymous")
+        name = getattr(fn, "__name__", "anonymous")
 
-        # defaults for this instance
-        gpu_memory = self.default_gpu_memory if gpu_memory is None else bool(gpu_memory)
-
-        res = BenchData()
+        res = BenchData(rounds=self.run_rounds, warmup=self.run_warmup)
 
         res.compile_ms, lowered, compiled = self.compile_time_ms(fn, *args, **kwargs)
         graph_mem = compiled.memory_analysis()
@@ -410,22 +395,21 @@ class BenchJax:
             warnings.warn(f"Failed to compute folded_constants_bytes ({e})", RuntimeWarning)
             res.graph_constant_memory = 0
 
-        if profile_run:
-            res.run_mean_ms, res.run_std_ms, res.rounds, res.warmup = self.run_ms(fn, *args, rounds=rounds, warmup=warmup, **kwargs)
+        if self.run_rounds > 0:
+            res.run_mean_ms, res.run_std_ms = self.run_ms(fn, *args, **kwargs)
 
-        if profile_run_memory:
-            def _work():
-                # A few runs to capture realistic peak usage
-                for _ in range(5):
-                    out = jax.jit(fn)(*args, **kwargs)
-                    jax.block_until_ready(out)
-            rss_peak, gpu_peak = self.practical_memory(_work, gpu_memory=gpu_memory)
+        # if profile_run_memory:
+        #     def _work():
+        #         # A few runs to capture realistic peak usage
+        #         for _ in range(5):
+        #             out = jax.jit(fn)(*args, **kwargs)
+        #             jax.block_until_ready(out)
+        #     rss_peak, gpu_peak = self.practical_memory(_work, gpu_memory=gpu_memory)
 
-            res.rss_peak_delta_bytes = int(rss_peak)
-            res.gpu_peak_bytes = int(gpu_peak)
+        #     res.rss_peak_delta_bytes = int(rss_peak)
+        #     res.gpu_peak_bytes = int(gpu_peak)
 
         self._write_row(name=name, backend=backend, row=res)
-        # self._print_console(name=name, backend=backend, row=res)
 
         return res
     
@@ -455,10 +439,7 @@ class BenchJax:
         test_file, test_name = test_nodeid.split("::")
         test_file = re.sub(r"[^A-Za-z0-9._-]+", ":", test_file)
         test_file = re.sub(r"\.py", "", test_file)
-        node = re.sub(r"[^A-Za-z0-9._-]+", "_", test_name)
-        # node = re.sub(r"\.py", "", node)
-        # nm = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
-        # return os.path.join(self.output_dir, f"{test_file}_{test_name}.csv")
+
         return os.path.join(self.output_dir, f"{test_file}::{test_name}.csv")
 
     def _write_row(self, *, name: str, backend: str, row: BenchData) -> None:
@@ -474,7 +455,7 @@ class BenchJax:
                 f.write(f"# pytest-jax-bench\n")
                 f.write(f"# created: {_now_iso()}\n")
                 f.write(f"# test_nodeid: {row.node_id}\n")
-                f.write(f"# name: {name}\n")
+                f.write(f"# function: {name}\n")
                 f.write(f"# backend: {backend}\n")
                 f.write(f"# First commit: {row.commit}\n")
                 for i,c in enumerate(row.column_descriptions()):
@@ -488,29 +469,6 @@ class BenchJax:
             f.write(row.formatted_line() + "\n")
         
         benchmarks[row.node_id] = path
-
-    # def _print_console(self, *, name: str, backend: str, row: BenchJaxRow) -> None:
-    #     # Print a summary when -v/--verbose is used
-    #     try:
-    #         verbose = int(self.config.getoption("verbose") or 0)
-    #     except Exception:
-    #         verbose = 0
-    #     if verbose <= 0:
-    #         return
-    #     rep = self.config.pluginmanager.getplugin("terminalreporter")
-    #     msg = (
-    #         f"[bench_jax] {name} (backend={backend}) "
-    #         f"compile={row.compile_ms:.2f}ms, "
-    #         f"run={row.run_mean_ms:.2f}±{row.run_std_ms:.2f}ms, "
-    #         f"rounds={row.rounds}, warmup={row.warmup}, "
-    #         f"graph_mem={row.graph_mem_bytes_est}B, "
-    #         f"rss+={row.rss_peak_delta_bytes}B, gpu_peak={row.gpu_peak_bytes}B"
-    #     )
-    #     if rep is not None:
-    #         rep.write_line(msg)
-    #     else:
-    #         print(msg)
-
 
 @pytest.fixture
 def bench_jax(request: pytest.FixtureRequest):
@@ -541,6 +499,6 @@ def bench_jax(request: pytest.FixtureRequest):
     config = request.config
 
     def _factory(*, rounds: int = 20, warmup: int = 3, gpu_memory: bool = False) -> BenchJax:
-        return BenchJax(request, config, default_rounds=rounds, default_warmup=warmup, default_gpu_memory=gpu_memory)
+        return BenchJax(request, config, run_rounds=rounds, run_warmup=warmup, default_gpu_memory=gpu_memory)
 
     return _factory
