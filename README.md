@@ -7,3 +7,14 @@ A pytest plugin to benchmark memory usage, compilation and runtime of jitted JAX
 pip install -e . # from repo root
 # optional memory extras
 pip install .[mem]
+```
+
+## Todo:
+* Add GPU to header
+
+* Measure Constant folding
+* Fix memory usage calculation
+* Add nice stdout output
+* Add helper functions for reading the csv
+* Make nice plots
+* cli for plots?

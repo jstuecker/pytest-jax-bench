@@ -10,6 +10,7 @@ from .data import BenchData, load_bench_data
 
 import pytest
 import subprocess
+import numpy as np
 
 # Optional runtime deps
 try:  # process memory (RSS)
@@ -109,8 +110,6 @@ def _num_elements(type_str: str) -> Optional[int]:
             return None
     return prod
 
-
-
 def _now_iso() -> str:
     return datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
@@ -126,13 +125,11 @@ def _git_commit_short() -> str:
     except Exception:
         return "unknown"
 
-
 def _get_backend() -> str:
     try:
         return jax.default_backend()  # "cpu", "gpu", "tpu"
     except Exception:
         return "unknown"
-
 
 class _GpuTracker:
     """Helper to read per-process GPU memory via NVML if available and requested."""
@@ -325,25 +322,20 @@ class BenchJax:
     
     def _get_run_data(self, path):
         if os.path.exists(path):
-            try:
-                with open(path, "r", encoding="utf-8") as _f:
-                    lines = _f.readlines()
-            except Exception:
-                lines = []
+            data = load_bench_data(path)
         else:
-            lines = []
+            data = np.zeros((0,), dtype=BenchData.data_type())
 
-        is_new = len(lines) == 0
-
-        # Data lines are those that are not comments (#) and not the column name lines (starting with '(')
-        existing_data_lines = [l for l in lines if l.strip() and not l.lstrip().startswith("#") and not l.lstrip().startswith("(")]
-        run_id = len(existing_data_lines)
+        run_id = len(data)
 
         current_commit = _git_commit_short()
-        # count occurences of current_commit in existing data lines
-        commit_run = sum(1 for l in existing_data_lines if re.search(rf"\b{re.escape(current_commit)}\b", l)) 
+        # Count occurences of current commit (with or without '+'):
+        commit_base = current_commit.rstrip("+")
+        commit_run = np.count_nonzero((data['commit'] == commit_base) | (data['commit'] == commit_base + "+"))
 
-        return run_id, current_commit, commit_run, is_new
+        print("data:", data)
+
+        return run_id, current_commit, commit_run
 
     # ---------- IO ----------
 
@@ -358,10 +350,11 @@ class BenchJax:
         row.node_id = self.request.node.nodeid
         path = self._outfile(row.node_id, name)
 
-        row.run_id, row.commit, row.commit_run, is_new = self._get_run_data(path)
+        row.run_id, row.commit, row.commit_run = self._get_run_data(path)
 
         with open(path, "a", encoding="utf-8") as f:
-            if is_new:
+            if row.run_id == 0:
+                print("Run data will be written to:", path)
                 # Add a header
                 f.write(f"# pytest-jax-bench\n")
                 f.write(f"# created: {_now_iso()}\n")

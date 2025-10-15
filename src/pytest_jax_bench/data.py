@@ -78,5 +78,5 @@ class BenchData:
 
 def load_bench_data(file: str) -> np.ndarray:
     """Load benchmark data from a CSV file into a structured numpy array."""
-    arr = np.genfromtxt(file, dtype=BenchData.data_type(), comments="#")
+    arr = np.genfromtxt(file, dtype=BenchData.data_type(), comments="#", ndmin=1)
     return arr
