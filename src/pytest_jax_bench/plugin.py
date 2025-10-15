@@ -5,7 +5,6 @@ import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
-# from my_jax_utils import folded_constants_bytes 
 from .data import BenchData, load_bench_data
 from .utils import folded_constants_bytes
 
@@ -16,25 +15,7 @@ import numpy as np
 import math
 import warnings
 
-# Optional runtime deps
-try:  # process memory (RSS)
-    import psutil  # type: ignore
-except Exception:  # pragma: no cover
-    psutil = None
-
-# Optional GPU memory via NVML
-try:
-    import pynvml  # type: ignore
-    _NVML_OK = True
-except Exception:  # pragma: no cover
-    pynvml = None
-    _NVML_OK = False
-
-try:
-    import jax
-except Exception as e:
-    raise RuntimeError("pytest-jax-bench requires JAX to be installed") from e
-
+import jax
 
 # ---------------------------
 # Pytest plugin configuration
@@ -236,51 +217,6 @@ def _get_backend() -> str:
     except Exception:
         return "unknown"
 
-class _GpuTracker:
-    """Helper to read per-process GPU memory via NVML if available and requested."""
-
-    def __init__(self, enabled: bool) -> None:
-        self.enabled = enabled and _NVML_OK
-        self.pid = os.getpid()
-        self._started = False
-        if self.enabled:
-            try:
-                pynvml.nvmlInit()
-                self._handles = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(pynvml.nvmlDeviceGetCount())]
-                self._started = True
-            except Exception:
-                self.enabled = False
-                self._handles = []
-        else:
-            self._handles = []
-
-    def _pid_mem_bytes(self) -> int:
-        if not self._started:
-            return 0
-        total = 0
-        for h in self._handles:
-            try:
-                procs = pynvml.nvmlDeviceGetComputeRunningProcesses_v2(h)
-            except Exception:
-                procs = []
-            for p in procs:
-                if getattr(p, "pid", None) == self.pid:
-                    used = getattr(p, "usedGpuMemory", 0) or 0
-                    if used > 0:
-                        total += int(used)
-        return total
-
-    def peak_during(self, fn: Callable[[], Any]) -> int:
-        if not self.enabled:
-            fn()
-            return 0
-        # simple pre/post probe; cheap and avoids background threads
-        peak = self._pid_mem_bytes()
-        fn()
-        peak = max(peak, self._pid_mem_bytes())
-        return peak
-
-
 # ---------------------------
 # The BenchJax core object
 # ---------------------------
@@ -347,24 +283,6 @@ class BenchJax:
 
         return np.mean(times), np.std(times)
 
-    def practical_memory(self, run_callable: Callable[[], Any], gpu_memory: bool = False) -> tuple[int, int]:
-        pid = os.getpid()
-        proc = psutil.Process(pid) if psutil is not None else None
-
-        def _rss() -> int:
-            if proc is None:
-                return 0
-            try:
-                return int(proc.memory_info().rss)
-            except Exception:
-                return 0
-
-        rss_start = _rss()
-        gpu = _GpuTracker(enabled=gpu_memory)
-        gpu_peak = gpu.peak_during(run_callable)
-        rss_end = _rss()
-        return max(rss_end - rss_start, 0), gpu_peak
-
     # ---------- high-level orchestration ----------
 
     def measure(
@@ -399,17 +317,6 @@ class BenchJax:
             res.jit_mean_ms, res.jit_std_ms = self.profile_run(fn, *args, **kwargs)
         if self.eager_rounds > 0:
             res.eager_mean_ms, res.eager_std_ms = self.profile_eager(fn, *args, **kwargs)
-
-        # if profile_run_memory:
-        #     def _work():
-        #         # A few runs to capture realistic peak usage
-        #         for _ in range(5):
-        #             out = jax.jit(fn)(*args, **kwargs)
-        #             jax.block_until_ready(out)
-        #     rss_peak, gpu_peak = self.practical_memory(_work, gpu_memory=gpu_memory)
-
-        #     res.rss_peak_delta_bytes = int(rss_peak)
-        #     res.gpu_peak_bytes = int(gpu_peak)
 
         if write:
             self._write_row(name=name, backend=backend, row=res)
