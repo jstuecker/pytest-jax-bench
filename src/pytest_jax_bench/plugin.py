@@ -142,7 +142,8 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 return _colored_diff(txt, v1, v2), len(txt)
 
             entry["Compile(ms)"] = compare_perf("compile_ms", tol=new["compile_ms"]*0.1)
-            entry["Run(ms)"] = compare_perf("run_mean_ms", std=np.sqrt(new["run_std_ms"]**2+old["run_std_ms"]**2))
+            entry["Jit(ms)"] = compare_perf("run_mean_ms", std=np.sqrt(new["run_std_ms"]**2+old["run_std_ms"]**2))
+            entry["Eager(ms)"] = compare_perf("eager_mean_ms", std=np.sqrt(new["eager_std_ms"]**2+old["eager_std_ms"]**2), only_different=True)
             entry["Memory(MB)"] = compare_mem("graph_peak_memory_mb")
             entry["Constants(MB)"] = compare_mem("graph_constants", min_mb=0.1)
 
@@ -285,26 +286,15 @@ class _GpuTracker:
 # ---------------------------
 
 class BenchJax:
-    """Provides measurement helpers. Defaults can be set per-test via the factory fixture.
-
-    Parameters
-    ----------
-    default_rounds : int
-        Default number of timed iterations when `profile_run=True`.
-    default_warmup : int
-        Default number of warmup iterations before timing.
-    default_gpu_memory : bool
-        Whether to attempt GPU memory measurement by default when `profile_run_memory=True`.
-    """
-
     def __init__(self, request: pytest.FixtureRequest, config: pytest.Config,
-                 run_rounds: int = 20, run_warmup: int = 3, default_gpu_memory: bool = False) -> None:
+                 run_rounds: int = 20, run_warmup: int = 3, eager_rounds = 5, eager_warmup = 1) -> None:
         self.request = request
         self.config = config
         self.output_dir = config.getoption("--bench-jax-output-dir")
         self.run_rounds = int(run_rounds)
         self.run_warmup = int(run_warmup)
-        self.default_gpu_memory = bool(default_gpu_memory)
+        self.eager_rounds = int(eager_rounds)
+        self.eager_warmup = int(eager_warmup)
         self._fn = None
         self._jitted = None
         self._lowered = None
@@ -322,8 +312,7 @@ class BenchJax:
         t2 = time.perf_counter()
         return (t2 - t1) * 1000.0, lowered, compiled
 
-    def run_ms(self, fn: Callable[..., Any], *args: Any,
-               rounds: Optional[int] = None, warmup: Optional[int] = None, **kwargs: Any) -> tuple[float, float, int, int]:
+    def profile_run(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[float, float]:
         """Return (mean_ms, std_ms, rounds, warmup)."""
         compiled = self._compiled if self._compiled is not None else jax.jit(fn)
 
@@ -340,11 +329,23 @@ class BenchJax:
             t1 = time.perf_counter()
             times.append((t1 - t0) * 1000.0)
 
-        n = len(times) or 1
-        mean = sum(times) / n
-        var = sum((x - mean) ** 2 for x in times) / (n - 1 if n > 1 else 1)
-        std = math.sqrt(var)
-        return mean, std
+        return np.mean(times), np.std(times)
+    
+    def profile_eager(self, fn, *args, **kwargs):
+        # warmup
+        for _ in range(self.eager_warmup):
+            fn(*args, **kwargs)
+        jax.block_until_ready(fn(*args, **kwargs))
+
+        times = []
+        for _ in range(self.eager_rounds):
+            t0 = time.perf_counter()
+            out = fn(*args, **kwargs)
+            jax.block_until_ready(out)
+            t1 = time.perf_counter()
+            times.append((t1 - t0) * 1000.0)
+
+        return np.mean(times), np.std(times)
 
     def practical_memory(self, run_callable: Callable[[], Any], gpu_memory: bool = False) -> tuple[int, int]:
         pid = os.getpid()
@@ -370,17 +371,15 @@ class BenchJax:
         self,
         fn: Callable[..., Any],
         *args: Any,
+        write = True,
         **kwargs: Any,
     ) -> BenchData:
-        """Run selected measurements and write one numeric row per call.
-
-        All numeric columns are always present; if a measurement was skipped its value is 0.
-        Times are in **milliseconds**.
-        """
+        """Run selected measurements and write one numeric row per call."""
         backend = _get_backend()
         name = getattr(fn, "__name__", "anonymous")
 
-        res = BenchData(rounds=self.run_rounds, warmup=self.run_warmup)
+        res = BenchData(jit_rounds=self.run_rounds, jit_warmup=self.run_warmup,
+                        eager_rounds=self.eager_rounds, eager_warmup=self.eager_warmup)
 
         res.compile_ms, lowered, compiled = self.compile_time_ms(fn, *args, **kwargs)
         graph_mem = compiled.memory_analysis()
@@ -397,7 +396,9 @@ class BenchJax:
             res.graph_constant_memory = 0
 
         if self.run_rounds > 0:
-            res.run_mean_ms, res.run_std_ms = self.run_ms(fn, *args, **kwargs)
+            res.jit_mean_ms, res.jit_std_ms = self.profile_run(fn, *args, **kwargs)
+        if self.eager_rounds > 0:
+            res.eager_mean_ms, res.eager_std_ms = self.profile_eager(fn, *args, **kwargs)
 
         # if profile_run_memory:
         #     def _work():
@@ -410,7 +411,8 @@ class BenchJax:
         #     res.rss_peak_delta_bytes = int(rss_peak)
         #     res.gpu_peak_bytes = int(gpu_peak)
 
-        self._write_row(name=name, backend=backend, row=res)
+        if write:
+            self._write_row(name=name, backend=backend, row=res)
 
         return res
     
@@ -500,6 +502,6 @@ def bench_jax(request: pytest.FixtureRequest):
     config = request.config
 
     def _factory(*, rounds: int = 20, warmup: int = 3, gpu_memory: bool = False) -> BenchJax:
-        return BenchJax(request, config, run_rounds=rounds, run_warmup=warmup, default_gpu_memory=gpu_memory)
+        return BenchJax(request, config, run_rounds=rounds, run_warmup=warmup)
 
     return _factory

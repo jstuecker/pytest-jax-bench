@@ -13,13 +13,21 @@ class BenchData:
     commit: str = "unknown"
     commit_run: int = 0
     compile_ms: float = 0.
-    run_mean_ms: float = 0.
-    run_std_ms: float = 0.
-    rounds: int = 0
-    warmup: int = 0
+
+    jit_mean_ms: float = 0.
+    jit_std_ms: float = 0.
+    eager_mean_ms: float = 0.
+    eager_std_ms: float = 0.
+
     graph_constants: int = 0
     graph_peak_memory: int = 0
     graph_temp_size: int = 0
+
+    jit_rounds: int = 0
+    jit_warmup: int = 0
+    eager_rounds: int = 0
+    eager_warmup: int = 0
+    
     rss_peak_delta_bytes: int = 0
     gpu_peak_bytes: int = 0
 
@@ -29,13 +37,21 @@ class BenchData:
             "Commit ('+' means with local changes)",
             "Commit Run",
             "Compile Time (ms)",
-            "Mean Run Time (ms)",
-            "Std. Dev. Run Time (ms)",
-            "Run Rounds",
-            "Warmup Rounds",
+
+            "Mean Jitted Run Time (ms)",
+            "Stddev. Jitted Run Time (ms)",
+            "Mean Eager Run Time (ms)",
+            "Stddev. Eager Run Time (ms)",
+
             "Graph Peak Memory (MB)",
             "Graph Constants Size (MB)",
             "Graph Temp Size (MB)",
+
+            "Jitted Run Rounds",
+            "Jitted Warmup Rounds",
+            "Eager Run Rounds",
+            "Eager Warmup Rounds",
+
             "rss_peak_delta_bytes (MB)",
             "gpu_peak_bytes (MB)",
         )
@@ -46,13 +62,21 @@ class BenchData:
                 f"{self.commit:>10s}"
                 f"{self.commit_run:10}"
                 f"{self.compile_ms:10.2f}"
-                f"{self.run_mean_ms:10.2f}"
-                f"{self.run_std_ms:10.2f}"
-                f"{self.rounds:10}"
-                f"{self.warmup:10}"
+
+                f"{self.jit_mean_ms:10.2f}"
+                f"{self.jit_std_ms:10.2f}"
+                f"{self.eager_mean_ms:10.2f}"
+                f"{self.eager_std_ms:10.2f}"
+
                 f"{self.graph_peak_memory/1024.**2:10.2f}"
                 f"{self.graph_constants/1024.**2:10.2f}"
                 f"{self.graph_temp_size/1024.**2:10.2f}"
+
+                f"{self.jit_rounds:10}"
+                f"{self.jit_warmup:10}"
+                f"{self.eager_rounds:10}"
+                f"{self.eager_warmup:10}"
+
                 f"{self.rss_peak_delta_bytes/1024.**2:10.2f}"
                 f"{self.gpu_peak_bytes/1024.**2:10.2f}"
         )
@@ -64,13 +88,21 @@ class BenchData:
             ("commit", "U32"),
             ("commit_run", np.int64),
             ("compile_ms", np.float64),
+
             ("run_mean_ms", np.float64),
             ("run_std_ms", np.float64),
-            ("rounds", np.int64),
-            ("warmup", np.int64),
+            ("eager_mean_ms", np.float64),
+            ("eager_std_ms", np.float64),
+
             ("graph_peak_memory_mb", np.float64),
             ("graph_constants", np.float64),
             ("graph_temp_size_mb", np.float64),
+
+            ("jit_rounds", np.int64),
+            ("jit_warmup", np.int64),
+            ("eager_rounds", np.int64),
+            ("eager_warmup", np.int64),
+
             ("rss_peak_delta_bytes", np.float64),
             ("gpu_peak_bytes", np.float64),
         ])
