@@ -3,10 +3,10 @@ from __future__ import annotations
 import os
 import re
 import time
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Optional
-from my_jax_utils import folded_constants_bytes 
+# from my_jax_utils import folded_constants_bytes 
+from .data import BenchData, load_bench_data
 
 import pytest
 import subprocess
@@ -62,61 +62,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
     # terminalreporter.write_sep("-", f"JAX benchmark results in {outdir}")
     # terminalreporter.write_line(f"To compare results across commits, use e.g.: {benchmarks}")
 
-# ---------------------------
-# Core measurement container
-# ---------------------------
 
-@dataclass
-class BenchJaxRow:
-    node_id: str = ""
-
-    run_id: int = 0
-    commit: str = "unknown"
-    commit_run: int = 0
-    compile_ms: float = 0.
-    run_mean_ms: float = 0.
-    run_std_ms: float = 0.
-    rounds: int = 0
-    warmup: int = 0
-    graph_generated_code_size: int = 0
-    graph_peak_memory: int = 0
-    graph_temp_size: int = 0
-    rss_peak_delta_bytes: int = 0
-    gpu_peak_bytes: int = 0
-
-    def column_descriptions(self) -> tuple[str]:
-        return (
-            "Run ID",
-            "Commit ('+' means with local changes)",
-            "Commit Run",
-            "Compile Time (ms)",
-            "Mean Run Time (ms)",
-            "Std. Dev. Run Time (ms)",
-            "Run Rounds",
-            "Warmup Rounds",
-            "Graph Peak Memory (MB)",
-            "Graph Generated Code Size (MB)",
-            "Graph Temp Size (MB)",
-            "rss_peak_delta_bytes (MB)",
-            "gpu_peak_bytes (MB)",
-        )
-    
-    def formatted_line(self) -> str:
-        return (
-                f"{self.run_id:10d}"
-                f"{self.commit:>10s}"
-                f"{self.commit_run:10}"
-                f"{self.compile_ms:10.2f}"
-                f"{self.run_mean_ms:10.2f}"
-                f"{self.run_std_ms:10.2f}"
-                f"{self.rounds:10}"
-                f"{self.warmup:10}"
-                f"{self.graph_peak_memory/1024.**2:10.2f}"
-                f"{self.graph_generated_code_size/1024.**2:10.2f}"
-                f"{self.graph_temp_size/1024.**2:10.2f}"
-                f"{self.rss_peak_delta_bytes/1024.**2:10.2f}"
-                f"{self.gpu_peak_bytes/1024.**2:10.2f}"
-        )
 
 
 # ---------------------------
@@ -337,7 +283,7 @@ class BenchJax:
         warmup: Optional[int] = None,
         gpu_memory: Optional[bool] = None,
         **kwargs: Any,
-    ) -> BenchJaxRow:
+    ) -> BenchData:
         """Run selected measurements and write one numeric row per call.
 
         All numeric columns are always present; if a measurement was skipped its value is 0.
@@ -349,7 +295,7 @@ class BenchJax:
         # defaults for this instance
         gpu_memory = self.default_gpu_memory if gpu_memory is None else bool(gpu_memory)
 
-        res = BenchJaxRow()
+        res = BenchData()
 
         res.compile_ms, lowered, compiled = self.compile_time_ms(fn, *args, **kwargs)
         graph_mem = compiled.memory_analysis()
@@ -373,7 +319,7 @@ class BenchJax:
             res.gpu_peak_bytes = int(gpu_peak)
 
         self._write_row(name=name, backend=backend, row=res)
-        self._print_console(name=name, backend=backend, row=res)
+        # self._print_console(name=name, backend=backend, row=res)
 
         return res
     
@@ -408,7 +354,7 @@ class BenchJax:
         nm = re.sub(r"[^A-Za-z0-9._-]+", "_", name)
         return os.path.join(self.output_dir, f"{node}_{nm}.csv")
 
-    def _write_row(self, *, name: str, backend: str, row: BenchJaxRow) -> None:
+    def _write_row(self, *, name: str, backend: str, row: BenchData) -> None:
         row.node_id = self.request.node.nodeid
         path = self._outfile(row.node_id, name)
 
