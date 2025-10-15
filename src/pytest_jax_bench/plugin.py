@@ -103,48 +103,67 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
     if config.getoption("-v") >= 0:
         terminalreporter.write_sep("=", "JAX benchmark results in ms and MB")
 
+        entries = []
         for test_nodeid, path in benchmarks.items():
             arr = load_bench_data(path)
             new, old = summary_select_commits(arr)
             if new is None: 
                 continue
-            
-            txt = f'{test_nodeid} com:{old["commit"]}({old["commit_run"]})->{new["commit"]}({new["commit_run"]})'
 
-            def str_compare_perf(key, std=0., tol=None, only_different=False, label=None):
+            entry = {}
+
+            def str_and_len(s):
+                return s, len(s)
+            
+            # label = f'{test_nodeid} com:{old["commit"]}({old["commit_run"]})->{new["commit"]}({new["commit_run"]})'
+            entry["Test"] = str_and_len(test_nodeid)
+            entry["Commit(Run)"] = str_and_len(f'{old["commit"]}({old["commit_run"]})->{new["commit"]}({new["commit_run"]})')
+
+            def compare_perf(key, std=0., tol=None, only_different=False):
                 if tol is None: tol = 2.*std
-                label = key if label is None else label
                 v1, v2 = old[key], new[key]
                 if only_different and np.abs(v1 - v2) <= std*2.:
-                    return ""
+                    txt = ""
                 if std > 0.:
-                    txt = f"{label}({v1:.2f}->{v2:.2f}+-{std:.2f})"
+                    txt = f"{v1:.2f}->{v2:.2f}+-{std:.2f}"
                 else:
-                    txt = f"{label}({v1:.2f}->{v2:.2f})"
-                return _colored_diff(txt, v1, v2, tol=tol)
+                    txt = f"{v1:.2f}->{v2:.2f}"
+                return _colored_diff(txt, v1, v2, tol=tol), len(txt)
             
-            def str_compare_mem(key, only_different=False, label=None):
-                label = key if label is None else label
+            def compare_mem(key, only_different=False):
                 v1, v2 = old[key], new[key]
-                if only_different and np.abs(v1 - v2) <= 1024*1024:
+                if only_different and v1 == v2:
                     return ""
-                txt = f"{label}({v1:.2f}->{v2:.2f})"
-                return _colored_diff(txt, v1, v2)
+                txt = f"{v1:.3g}->{v2:.3g}"
+                return _colored_diff(txt, v1, v2), len(txt)
 
-            txt += " " + str_compare_perf("compile_ms", tol=new["compile_ms"]*0.1, label="compile")
-            txt += " " + str_compare_perf("run_mean_ms", std=np.sqrt(new["run_std_ms"]**2+old["run_std_ms"]**2), label="run")
-            txt += " " + str_compare_mem("graph_peak_memory_mb", label="mem_mb")
+            entry["Compile(ms)"] = compare_perf("compile_ms", tol=new["compile_ms"]*0.1)
+            entry["Run(ms)"] = compare_perf("run_mean_ms", std=np.sqrt(new["run_std_ms"]**2+old["run_std_ms"]**2))
+            entry["Memory(MB)"] = compare_mem("graph_peak_memory_mb")
 
-            terminalreporter.write_line(txt)
+            entries.append(entry)
 
+        if len(entries) == 0:
+            terminalreporter.write_line("No benchmark data collected.")
+            return
 
-        #     terminalreporter.write_line(f"{test_nodeid} -> {path}")
+        allkeys = entries[0].keys()
+        
+        lines = ["" for _ in range(len(entries) + 1)]
+        for key in allkeys:
+            maxlen = max(entry[key][1] for entry in entries)
+            if maxlen == 0:
+                continue
+            maxlen = max(maxlen, len(key))
 
-    # terminalreporter.write_sep("-", f"JAX benchmark results in {outdir}")
-    # terminalreporter.write_line(f"To compare results across commits, use e.g.: {benchmarks}")
+            lines[0] += f"{key:^{maxlen+2}}"
 
+            for i,entry in enumerate(entries):
+                corrected_len = maxlen + len(entry[key][0]) - entry[key][1]
+                lines[i+1] += f"{entry[key][0]:<{corrected_len + 2}}"
 
-
+        for line in lines:
+            terminalreporter.write_line(line)
 
 # ---------------------------
 # StableHLO memory estimate utils (very rough)
