@@ -53,6 +53,11 @@ def pytest_configure(config: pytest.Config) -> None:
     os.makedirs(outdir, exist_ok=True)
 
 
+def select_commit_runs(arr, commit):
+    commit_base = commit.rstrip("+")
+    mask = np.where((arr["commit"] == commit_base) | (arr["commit"] == commit_base + "+"))[0]
+    return arr[mask]
+
 def summary_select_commits(arr):
     if len(arr) == 0:
         return None, None
@@ -64,12 +69,7 @@ def summary_select_commits(arr):
     # If the commit is dirty, we use the first entry with the same commit hash
     commit = new_data["commit"]
 
-    def select_commits(arr, commit):
-        commit_base = commit.rstrip("+")
-        mask = np.where((arr["commit"] == commit_base) | (arr["commit"] == commit_base + "+"))[0]
-        return arr[mask]
-
-    data_same_commit = select_commits(arr, commit)
+    data_same_commit = select_commit_runs(arr, commit)
 
     if len(data_same_commit) >= 1:
         comparison_data = data_same_commit[0]
@@ -172,7 +172,6 @@ def _dtype_nbytes(type_str: str) -> Optional[int]:
         return _COMPLEX_BYTES.get(base, None)
     base = type_str.split("x")[-1]
     return _DTYPE_BYTES.get(base, None)
-
 
 def _num_elements(type_str: str) -> Optional[int]:
     parts = type_str.split("x")
@@ -406,12 +405,17 @@ class BenchJax:
         else:
             data = np.zeros((0,), dtype=BenchData.data_type())
 
-        run_id = len(data)
+        if len(data) > 0:
+            run_id = np.max(data["run_id"]) + 1
+        else:
+            run_id = 0
 
         current_commit = _git_commit_short()
-        # Count occurences of current commit (with or without '+'):
-        commit_base = current_commit.rstrip("+")
-        commit_run = np.count_nonzero((data['commit'] == commit_base) | (data['commit'] == commit_base + "+"))
+        runs = select_commit_runs(data, current_commit)
+        if len(runs) > 0:
+            commit_run = np.max(runs["commit_run"]) + 1
+        else:
+            commit_run = 0
 
         print("data:", data)
 
