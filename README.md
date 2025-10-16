@@ -1,12 +1,12 @@
 # pytest-jax-bench
-A pytest plugin to benchmark memory usage, compilation and runtime of jitted JAX functions. Has only been tested on GPU with jax=0.7.2 and CUDA13 so far.
+A pytest plugin to benchmark memory usage, compilation time and run time of jitted JAX functions. This code is inspired by [pytest-benchmark](https://pytest-benchmark.readthedocs.io/en/latest/). It has only been tested on GPU with jax=0.7.2 and CUDA13 so far.
 
 ## Installation
 First install [jax](https://docs.jax.dev/en/latest/installation.html) with GPU support and then...
 
 ```bash
-pip install -e .[plot]     # With plotting support (requires matplotlib)
-pip install -e .        # In general
+pip install -e .[plot]     # With optional plotting support (requires matplotlib)
+pip install -e .           # In general
 ```
 If you don't want to edit the project, you can skip the "-e"
 
@@ -21,7 +21,7 @@ def fft(x): # An example function we want to profile
     return jnp.fft.ifftn(jnp.fft.fftn(x))
 
 def test_fft(jax_bench):  # jax_bench is a fixture that creates a JaxBench object.
-    x = jnp.ones((128, 128, 128), dtype=jnp.float32)
+    x = jnp.ones((256, 256, 256), dtype=jnp.float32)
 
     jb = jax_bench(jit_rounds=20, jit_warmup=1, eager_rounds=10, eager_warmup=1)
     jb.measure(fn=fft, fn_jit=jax.jit(fft), x=x)
@@ -32,25 +32,25 @@ pytest -v
 ```
 The benchmark results will only be displayed if you use the "-v" (verbose) option. However, they will always be saved to a ".csv" file in a simple to read table -- by default in the `.benchmarks` directory.
 
-The `jb.measure` step in the example above will progress in several steps:
+The `jb.measure` call in the example above will take the following steps:
 
-* Do an eager execution warmup run using "fn"
+* An eager execution warmup run using `fn`
 * Save the measured peak memory usage. (This measurement has additional requirements as discussed below.)
-* Average the run-time of eager execution over 10 loops using "fn". 
-* Compile the jitted function using "fn_jit"
+* Average the run-time of eager execution over 10 loops using `fn`. 
+* Compile the jitted function using `fn_jit`
 * Save the predicted memory usage of the jitted function (including peak memory, temporary memory and memory used by folded constants)
-* Average the run-time of the jitted function over 20 loops, using "fn_jit"
+* Average the run-time of the jitted function over 20 loops, using `fn_jit`
 
-Different stages can be skipped by setting the measurement parameters to 0 or by not passing "fn" or "fn_jit".
+Different stages can be skipped by setting the measurement parameters to 0 or by not passing `fn` or `fn_jit`.
 
 ### Eager exeuction memory
 
-So far I didn't find a reliable way to measure the eager execution memory usage that does not require restarting the measuring process. Therefore, the measurement will be invalidated unless you execute with `--forked` flag provided by `pytest-forked`
+So far I didn't find a reliable way to measure the eager execution peak-memory usage that does not require restarting the measuring process. Therefore, this part of the measurement will be invalidated unless you execute with the `--forked` flag provided by `pytest-forked`
 ```bash
 #pip install pytest-forked  # If you didn't install it already
 pytest --forked
 ```
-However, this may significantly slow down execution due to the additional python launch required for each test. If you know a better way to profile the memory used by jax, don't hesitate to contact me!
+However, this may significantly slow down execution due to the additional python launch required for each test. (If you know a better way to profile the memory used by jax, don't hesitate to contact me!) For now, I'd recommend to launch normally in general and only use `--forked` once in a while, when you really want to know the eager memory usage.
 
 ### Optional parameters
 All the optional parameters are listed in ```pytest --help```. Since the help file can be a bit overwhelming, you can specifically find all the options defined by pytest-jax-bench (ptjb) as follows:
@@ -64,7 +64,7 @@ Fixtures in pytest don't go too well with syntax highlighting. If you want prope
 from pytest_jax_bench import JaxBench
 
 def test_fft_alt(request):
-    x = jnp.ones((128, 128, 128), dtype=jnp.float32)
+    x = jnp.ones((256, 256, 256), dtype=jnp.float32)
 
     jb = JaxBench(request, jit_rounds=20, jit_warmup=1, eager_rounds=10, eager_warmup=1)
     jb.measure(fn_jit=jax.jit(fft), x=x)
@@ -72,7 +72,7 @@ def test_fft_alt(request):
 > Note: We still need to pass the `request` fixture to the JaxBench object.
 
 ### Tags
-It is possible to do several measurements inside of the same test, for example:
+It is possible to do several measurements inside of the same test if you provide a tag to each run:
 ```python
 def rfft(x):
     return jnp.fft.irfftn(jnp.fft.rfftn(x*2.))
@@ -88,18 +88,18 @@ def test_tags(request):
     jb.measure(fn=fft, fn_jit=jax.jit(fft), x=x, tag="fft")
     jb.measure(fn=rfft, fn_jit=jax.jit(rfft), x=x, tag="rfft")
 ```
-So far this doesn't support eager memory at all (even when using `--forked`)
+So far, this doesn't support eager memory at all (even when using `--forked`)
 
 ### Examples:
-For examples check the tests directory
+For more examples check the [tests](tests) directory
 
 ## Outputs
 
-Outputs of tests come in three different varieties. (1) .csv files that log the results of the benchmarks (one per test). (2) The terminal output displayed if using "-v" (3) Plots that can be created automatically.
+Outputs of tests come in three different varieties. (1) Files (.csv) that log the results of the benchmarks (one per test). (2) The terminal output displayed if using "-v" (3) Overview plots that can be created optionally.
 
 ### The .csv files
 
-Each test creates a csv file in `--ptjb-output-dir` (defaults to .benchmarks) named after the nodeid of the test. For example this is the file ".benchmarks/tests:test_interface::test_full.csv" that was creates by running the unit tests in this directory several times:
+Each test creates a csv file in `--ptjb-output-dir` (defaults to `.benchmarks`) named after the nodeid of the test. For example this is the file ".benchmarks/tests:test_interface::test_full.csv" that was creates by running the unit tests in this directory several times:
 ```
 # pytest-jax-bench
 # created: 2025-10-16T19:58:11Z
@@ -131,7 +131,7 @@ Each test creates a csv file in `--ptjb-output-dir` (defaults to .benchmarks) na
            3     76640ba           1        base       43.19        0.91        0.49        0.54        0.02    25296896           4     8519680    33816576          10           2           5           1
  [...]
 ```
-Each run creates a line in this table. Note that the active git-commit is logged (a "+" means there were uncommited changes in the directory.) and that a per-commit run-id is tracked additionally for convenience. If you want to work with the raw data of these ".csv" files you can use 
+Each run creates a line in this table. The active git-commit is logged (a "+" indicates a "dirty" commit with some uncommited changes in the directory.) anda per-commit run-id is tracked additionally for convenience. If you want to work with the raw data of these ".csv" files you can use 
 ```python
 from pytest_jax_bench import load_bench_data
 data = load_bench_data(".benchmarks/tests:test_interface::test_full.csv")
@@ -140,10 +140,10 @@ This reads the data into a [numpy structured array](https://numpy.org/doc/stable
 ```python
 print(data[-2:]["commit"], data[-2:]["jit_mean_ms"], "+-", data[-2:]["jit_std_ms"])
 ```
-to print the last two runs' commit, average runtime and measurement uncertainty. Invalid measurements may be set to "np.nan" for invalid timings or "-1" for invalid memory values.
+to print the last two runs' commit, average runtime and measurement uncertainty. Measurements may be set to "np.nan" for invalid timings or "-1" for invalid memory values.
 
 ### The terminal output
-If you run pytest with "-v" option you may get a terminal output similar to this.
+If you run pytest with "-v" option you will get a terminal output similar to this:
 
 ![pytest-jax-bench terminal example](assets/terminal_example.png)
 <!-- ```
@@ -162,21 +162,17 @@ tests/test_tags.py::test_tags                  0->4   fft   43.0->43.7   11.3->1
 tests/test_tags.py::test_tags                  0->4   rfft  40.5->39.8   5.9->6.0+-0.1    6.4->6.3+-0.2    192->192
 ============================================================== 10 passed in 8.34s ==============================================================
 ``` -->
-Each result is compared to a previous run. For now the comparison run will always be the "0"th run with the same commmit id. The intended workflow is to run the benchmark once before you make any changes and then to repeat frequently while you experiment with the code.
+(Irrelevant output columns may be ommitted.) Each result is compared to a previous run. For now, the comparison run is always the first run that was run within the same active commmit. The intended workflow is to run the benchmark on your clean commit once before you make any changes. Then afterwards you can repeat it frequently while you experiment with the code.
 
-Results that may be particularly relevant are marked in green (improvement) or red (worsened). Benchmarks can fluctuate randomly so don't panic immediately if something flashes up red -- it just means you should maybe pay some attention and investigate whether it is a real effect or a fluke. Also be aware that functions with runtime <~ 1ms are not really reliably profiled (as you can see in the example above), due to the synchronization overhead -- so prefer to profile runs that take >~ 5 ms.
+Results that may be particularly relevant are marked in green (improvement) or red (worsened). Benchmarks can fluctuate randomly so don't panic immediately if something flashes up red -- it just means that it *might* be worth your attention. Also be aware that functions with runtime <~ 1ms are not really well profiled (as you can see in the example above), due to the synchronization overhead -- so prefer to profile runs that take >~ 5 ms.
 
-In the example at hand, I had improved the function that is called bin `test_tags` with a very significant reduction in run time and memory usage. However, you can also see that the compile time fluctuated sufficiently for two other tests and the run time for a third one to flash up in color.
+In the example at hand, you can see that I had improved the function that is called bin `test_tags` with a very significant reduction in run time and memory usage -- leading to a lot of green marks. However, you can also see that the compile time fluctuated sufficiently for two other tests and the run time for a third one to flash up in color.
 
 ### Plotting results
 You can create plots in two different ways:
 
 * By directly passing `--ptjb-plot-all` or `--ptjb-plot-each` to the `pytest` command
-* By using the `ptjb-plot` command line tool (supporting the same + some additional options)
+* By using the `ptjb-plot` command line tool (supporting the same + some additional options -- see `ptjb-plot --help`)
 
-Depending on the chosen option, this will either create one big summary plot or many individual plots for each test. For example this is how one of my individual plots looked, after I "accidentally" increased the size of myfft, panicked and made it too small and finally reverted it to the correct state:
+Depending on the chosen options, this will either create one big summary plot or an individual plot for each test. For example, this is how one of my individual plots looked, after I had "accidentally" increased the size of my FFT, then panicked and made it too small and finally reverted it to the correct state:
 ![pytest-jax-bench plot example](assets/plot_example.png)
-
-
-## Todo
-Readme
