@@ -37,28 +37,28 @@ def pytest_configure(config: pytest.Config) -> None:
     outdir = config.getoption("--bench-jax-output-dir")
     os.makedirs(outdir, exist_ok=True)
 
-def select_commit_runs(arr, commit):
+def select_commit_runs(data, commit):
     commit_base = commit.rstrip("+")
-    mask = np.where((arr["commit"] == commit_base) | (arr["commit"] == commit_base + "+"))[0]
-    return arr[mask]
+    mask = np.where((data["commit"] == commit_base) | (data["commit"] == commit_base + "+"))[0]
+    return data[mask]
 
-def summary_select_commits(arr):
-    if len(arr) == 0:
+def summary_select_commits(data):
+    if len(data) == 0:
         return None, None
 
-    new_data = arr[-1]
+    new_data = data[-1]
 
     # Find the comparison data
     # If there is no other entry with the same commit hash, we consider the last entry of previous commit
     # If the commit is dirty, we use the first entry with the same commit hash
     commit = new_data["commit"]
 
-    data_same_commit = select_commit_runs(arr, commit)
+    data_same_commit = select_commit_runs(data, commit)
 
     if len(data_same_commit) >= 1:
         comparison_data = data_same_commit[0]
-    elif len(arr) >= 2:
-        data_last_commit = arr[-2]["commit"]
+    elif len(data) >= 2:
+        data_last_commit = data[-2]["commit"]
     else: # as a fallback compare with self (to keep code simple)
         data_last_commit = new_data
 
@@ -101,8 +101,8 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
         entries = []
         for report in terminalreporter.getreports("passed"):
             path = nodeid_to_path(report.nodeid, output_dir=output_dir)
-            arr = load_bench_data(path)
-            new, old = summary_select_commits(arr)
+            data = load_bench_data(path)
+            new, old = summary_select_commits(data)
             if new is None: 
                 continue
 
