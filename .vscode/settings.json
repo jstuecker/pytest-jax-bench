@@ -2,7 +2,7 @@
     "python.testing.pytestArgs": [
         "tests",
         "-v",
-        "--forked"
+        "--rootdir=tests"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true

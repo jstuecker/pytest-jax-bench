@@ -12,7 +12,6 @@ import pytest
 import subprocess
 import numpy as np
 
-import math
 import warnings
 
 import jax
@@ -128,7 +127,9 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 v1, v2 = old[key], new[key]
                 if only_different and np.abs(v1 - v2) <= std*2.:
                     txt = ""
-                if std > 0.:
+                elif np.isnan(v1) and np.isnan(v2):
+                    txt = ""
+                elif std > 0.:
                     txt = f"{v1:.2f}->{v2:.2f}+-{std:.2f}"
                 else:
                     txt = f"{v1:.2f}->{v2:.2f}"
@@ -139,6 +140,8 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 v2 = new[key]/1024.**2 if new[key] >= 0 else np.nan
                 if only_different and v1 == v2:
                     txt = ""
+                elif np.isnan(v1) and np.isnan(v2):
+                    txt = ""
                 elif max(np.nan_to_num(v1,np.inf), np.nan_to_num(v2,np.inf)) >= min_mb:
                     txt = f"{v1:.4g}->{v2:.4g}"
                 else:
@@ -147,7 +150,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
 
             entry["Compile(ms)"] = compare_perf("compile_ms", tol=new["compile_ms"]*0.1)
             entry["Jit-Run(ms)"] = compare_perf("jit_mean_ms", std=np.sqrt(new["jit_std_ms"]**2+old["jit_std_ms"]**2))
-            entry["Eager-Run(ms)"] = compare_perf("eager_mean_ms", std=np.sqrt(new["eager_std_ms"]**2+old["eager_std_ms"]**2), only_different=True)
+            entry["Eager-Run(ms)"] = compare_perf("eager_mean_ms", std=np.sqrt(new["eager_std_ms"]**2+old["eager_std_ms"]**2))
             entry["Jit-Peak(MB)"] = compare_mem("jit_peak_bytes")
             entry["Jit-Const(MB)"] = compare_mem("jit_constants_bytes", min_mb=0.1)
             eager_str = "Eager-Peak(MB)" #if forked else _colored("Eager-Mem(MB) (invalid!)", "yellow")
@@ -204,26 +207,21 @@ def _get_backend() -> str:
         return "unknown"
 
 # ---------------------------
-# The BenchJax core object
+# The JaxBench core object
 # ---------------------------
 
-class BenchJax:
-    def __init__(self, request: pytest.FixtureRequest, config: pytest.Config,
+class JaxBench:
+    def __init__(self, request: pytest.FixtureRequest,
                  jit_rounds: int = 20, jit_warmup: int = 1, eager_rounds = 5, eager_warmup = 1) -> None:
         self.request = request
-        self.forked = config.getoption("--forked", False)
-        self.config = config
-        self.output_dir = config.getoption("--ptjb-output-dir")
-        self.tag = config.getoption("--ptjb-tag", "default")
+        self.config = request.config
+        self.forked = self.config.getoption("--forked", False)
+        self.output_dir = self.config.getoption("--ptjb-output-dir")
+        self.tag = self.config.getoption("--ptjb-tag", "default")
         self.jit_rounds = int(jit_rounds)
         self.jit_warmup = int(jit_warmup)
         self.eager_rounds = int(eager_rounds)
         self.eager_warmup = int(eager_warmup)
-
-        self._fn = None
-        self._jitted = None
-        self._lowered = None
-        self._compiled = None
 
     def compile_time_ms(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> float:
         """Return compilation time in milliseconds (excluding lowering)."""
@@ -235,19 +233,17 @@ class BenchJax:
         t2 = time.perf_counter()
         return (t2 - t1) * 1000.0, lowered, compiled
 
-    def profile_run(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[float, float]:
+    def profile_run(self, fn_comp: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[float, float]:
         """Return (mean_ms, std_ms, rounds, warmup)."""
-        compiled = self._compiled if self._compiled is not None else jax.jit(fn)
-
         # warmup
         for _ in range(self.jit_warmup):
-            compiled(*args, **kwargs)
-        jax.block_until_ready(compiled(*args, **kwargs))
+            fn_comp(*args, **kwargs)
+        jax.block_until_ready(fn_comp(*args, **kwargs))
 
         times = []
         for _ in range(self.jit_rounds):
             t0 = time.perf_counter()
-            out = compiled(*args, **kwargs)
+            out = fn_comp(*args, **kwargs)
             jax.block_until_ready(out)
             t1 = time.perf_counter()
             times.append((t1 - t0) * 1000.0)
@@ -287,41 +283,42 @@ class BenchJax:
 
     def measure(
         self,
-        fn: Callable[..., Any],
+        fn: Optional[Callable[..., Any]] = None,
+        fn_jit: Optional[Callable[..., Any]] = None,
+        tag = None,
         *args: Any,
         write = True,
         **kwargs: Any,
     ) -> BenchData:
         """Run selected measurements and write one numeric row per call."""
-        backend = _get_backend()
-        name = getattr(fn, "__name__", "anonymous")
 
         res = BenchData(jit_rounds=self.jit_rounds, jit_warmup=self.jit_warmup,
                         eager_rounds=self.eager_rounds, eager_warmup=self.eager_warmup)
         
         # First do eager profiling, to get a good idea of the memory
-        if self.eager_rounds > 0:
+        if fn is not None:
             res.eager_mean_ms, res.eager_std_ms, res.eager_peak_memory = self.profile_eager(fn, *args, **kwargs)
 
-        res.compile_ms, lowered, compiled = self.compile_time_ms(fn, *args, **kwargs)
-        graph_mem = compiled.memory_analysis()
+        if fn_jit is not None:
+            res.compile_ms, lowered, fn_compiled = self.compile_time_ms(fn_jit, *args, **kwargs)
+            graph_mem = fn_compiled.memory_analysis()
 
-        res.jit_constants_bytes = graph_mem.generated_code_size_in_bytes
-        res.jit_peak_bytes = graph_mem.peak_memory_in_bytes
-        res.jit_temporary_bytes = graph_mem.temp_size_in_bytes
-        try:
-            # It seems likely the handling of jax's folded constants will change in the future
-            # Therefore, we catch exceptions here for now...
-            res.jit_constants_bytes = folded_constants_bytes(lowered)
-        except Exception as e:
-            warnings.warn(f"Failed to compute folded_constants_bytes ({e})", RuntimeWarning)
-            res.jit_constants_bytes = 0
+            res.jit_constants_bytes = graph_mem.generated_code_size_in_bytes
+            res.jit_peak_bytes = graph_mem.peak_memory_in_bytes
+            res.jit_temporary_bytes = graph_mem.temp_size_in_bytes
+            try:
+                # It seems likely the handling of jax's folded constants will change in the future
+                # Therefore, we catch exceptions here for now...
+                res.jit_constants_bytes = folded_constants_bytes(lowered)
+            except Exception as e:
+                warnings.warn(f"Failed to compute folded_constants_bytes ({e})", RuntimeWarning)
+                res.jit_constants_bytes = 0
 
-        if self.jit_rounds > 0:
-            res.jit_mean_ms, res.jit_std_ms = self.profile_run(fn, *args, **kwargs)
+            if self.jit_rounds > 0:
+                res.jit_mean_ms, res.jit_std_ms = self.profile_run(fn_compiled, *args, **kwargs)
 
         if write:
-            self._write_row(name=name, backend=backend, row=res)
+            self._write_row(res=res, tag=tag)
 
         return res
     
@@ -347,35 +344,32 @@ class BenchJax:
 
     # ---------- IO ----------
 
-    def _write_row(self, *, name: str, backend: str, row: BenchData) -> None:
+    def _write_row(self, res: BenchData, tag: str = "default") -> None:
         node_id = self.request.node.nodeid
         path = nodeid_to_path(node_id, output_dir=self.output_dir)
 
-        row.run_id, row.commit, row.commit_run = self._get_run_data(path)
-        row.tag = self.tag
+        res.run_id, res.commit, res.commit_run = self._get_run_data(path)
+        res.tag = self.tag if tag is None else tag
 
         with open(path, "a", encoding="utf-8") as f:
-            if row.run_id == 0:
+            if res.run_id == 0:
                 print("Run data will be written to:", path)
                 # Add a header
                 f.write(f"# pytest-jax-bench\n")
                 f.write(f"# created: {_now_iso()}\n")
                 f.write(f"# test_nodeid: {node_id}\n")
-                f.write(f"# function: {name}\n")
-                f.write(f"# backend: {backend}\n")
+                f.write(f"# backend: {_get_backend()}\n")
                 f.write(f"# device: {jax.devices()[0].device_kind}\n")
-                f.write(f"# First commit: {row.commit}\n")
-                f.write(row.get_column_header())
+                f.write(f"# First commit: {res.commit}\n")
+                f.write(res.get_column_header())
                 f.write("\n")
             
-            # Add a new line
-            f.write(row.formatted_line() + "\n")
+            # Write our test results:
+            f.write(res.formatted_line() + "\n")
 
 @pytest.fixture
-def bench_jax(request: pytest.FixtureRequest):
-    config = request.config
-
-    def _factory(*, rounds: int = 20, warmup: int = 3, gpu_memory: bool = False) -> BenchJax:
-        return BenchJax(request, config, jit_rounds=rounds, jit_warmup=warmup)
+def jax_bench(request: pytest.FixtureRequest) -> Callable[..., JaxBench]:
+    def _factory(*args, **kwargs) -> JaxBench:
+        return JaxBench(request, *args, **kwargs)
 
     return _factory
