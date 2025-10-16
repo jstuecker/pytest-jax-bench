@@ -201,6 +201,32 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
 
         for line in lines:
             terminalreporter.write_line(line)
+    if config.getoption("--ptjb-plot-summary") or config.getoption("--ptjb-plot-all"):
+        try:
+            from . import plots
+        except ImportError as e:
+            terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) plotting skipped")
+            terminalreporter.write_line("Failed to import plotting extension.")
+            terminalreporter.write_line(str(e))
+            return
+
+        xaxis = config.getoption("--ptjb-plot-xaxis")
+        if xaxis not in ("commit", "run", "tag"):
+            terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) plotting skipped")
+            terminalreporter.write_line(f"Unknown xaxis {xaxis}, must be 'commit', 'run' or 'tag'")
+            return
+
+        if config.getoption("--ptjb-plot-summary"):
+            terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) summary plot")
+
+            plots.plot_all_benchmarks_together(bench_dir=output_dir, xaxis=xaxis, save="png")
+            terminalreporter.write_line(f"Summary plot saved to {os.path.join(output_dir, 'all_benchmarks.png')}")
+
+        if config.getoption("--ptjb-plot-all"):
+            terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) all benchmarks plot")
+            
+            plots.plot_all_benchmarks_individually(bench_dir=output_dir, xaxis=xaxis, save="png")
+            terminalreporter.write_line(f"All benchmarks plot saved to {os.path.join(output_dir)}")
 
 # ---------------------------
 # StableHLO memory estimate utils (very rough)

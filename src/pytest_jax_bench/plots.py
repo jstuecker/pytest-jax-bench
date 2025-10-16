@@ -67,7 +67,8 @@ def plot_run_performance(data, title=None, xaxis="commit", ax=None):
     
     ax.set_ylabel("Time (ms)")
     ax.legend()
-    ax.set_yscale("log")
+    if np.any((data["jit_mean_ms"] > 0) | (data["eager_mean_ms"] > 0)):
+        ax.set_yscale("log")
 
     return ax
 
@@ -83,7 +84,8 @@ def plot_memory_usage(data, title=None, xaxis="commit", ax=None):
 
     ax.set_ylabel("Memory (MB)")
     ax.legend()
-    ax.set_yscale("log")
+    if np.any((data["jit_peak_bytes"] > 0) | (data["eager_peak_memory"] > 0)):
+        ax.set_yscale("log")
 
     return ax
 
@@ -109,6 +111,7 @@ def plot_all_benchmarks_together(bench_dir="../.benchmarks", xaxis="commit", sav
     if save:
         assert save in {"png", "pdf"}
         fig.savefig(os.path.join(bench_dir, "all_benchmarks.%s" % save))
+        plt.close(fig)
 
     return fig, axs
 
