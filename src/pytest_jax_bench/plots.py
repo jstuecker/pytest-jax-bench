@@ -1,4 +1,8 @@
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.pyplot as plt
+except ImportError:
+    raise ImportError("matplotlib is required for plotting. Please install it via "
+                      "'pip install pytest-jax-bench[plot]' or 'pip install matplotlib'.")
 import numpy as np
 import os
 from .data import load_bench_data

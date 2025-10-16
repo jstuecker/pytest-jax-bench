@@ -135,15 +135,15 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 if tol is None: tol = 2.*std
                 v1, v2 = old[key], new[key]
                 if same:
-                    txt = f"{v2:.2f}"
+                    txt = f"{v2:.1f}"
                 elif only_different and np.abs(v1 - v2) <= std*2.:
                     txt = ""
                 elif np.isnan(v1) and np.isnan(v2):
                     txt = ""
                 elif std > 0.:
-                    txt = f"{v1:.2f}->{v2:.2f}+-{std:.2f}"
+                    txt = f"{v1:.1f}->{v2:.1f}+-{std:.1f}"
                 else:
-                    txt = f"{v1:.2f}->{v2:.2f}"
+                    txt = f"{v1:.1f}->{v2:.1f}"
                 return _colored_diff(txt, v1, v2, tol=tol), len(txt)
 
             entry["Compile(ms)"] = compare_perf("compile_ms", tol=new["compile_ms"]*0.1)
