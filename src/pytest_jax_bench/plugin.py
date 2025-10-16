@@ -30,10 +30,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Directory for output files (default: .benchmarks)",
     )
 
-benchmarks = {}
 def pytest_configure(config: pytest.Config) -> None:
-    global benchmarks
-    benchmarks = {}
     outdir = config.getoption("--bench-jax-output-dir")
     os.makedirs(outdir, exist_ok=True)
 
@@ -94,7 +91,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
 
         output_dir = config.getoption("--bench-jax-output-dir")
 
-        terminalreporter.write_sep("=", "JAX benchmark results in ms and MB")
+        terminalreporter.write_sep("=", "JAX benchmark results")
         if not forked:
             terminalreporter.write_line(_colored("Warning: Eager mode memory report is only valid when using --forked!", "yellow"))
 
@@ -129,19 +126,19 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 v1, v2 = old[key], new[key]
                 if only_different and v1 == v2:
                     txt = ""
-                elif max(np.nan_to_num(v1,np.inf), np.nan_to_num(v2,np.inf)) >= min_mb:
-                    txt = f"{v1:.3g}->{v2:.3g}"
+                elif max(np.nan_to_num(v1,np.inf), np.nan_to_num(v2,np.inf)) >= min_mb*1024*1024:
+                    txt = f"{v1/1024.**2:.4g}->{v2/1024.**2:.4g}"
                 else:
                     txt = ""
                 return _colored_diff(txt, v1, v2), len(txt)
 
             entry["Compile(ms)"] = compare_perf("compile_ms", tol=new["compile_ms"]*0.1)
-            entry["Jit-Run(ms)"] = compare_perf("run_mean_ms", std=np.sqrt(new["run_std_ms"]**2+old["run_std_ms"]**2))
+            entry["Jit-Run(ms)"] = compare_perf("jit_mean_ms", std=np.sqrt(new["jit_std_ms"]**2+old["jit_std_ms"]**2))
             entry["Eager-Run(ms)"] = compare_perf("eager_mean_ms", std=np.sqrt(new["eager_std_ms"]**2+old["eager_std_ms"]**2), only_different=True)
-            entry["Jit-Mem(MB)"] = compare_mem("graph_peak_memory_mb")
-            entry["Constants(MB)"] = compare_mem("graph_constants", min_mb=0.1)
+            entry["Jit-Mem(MB)"] = compare_mem("jit_peak_bytes")
+            entry["Constants(MB)"] = compare_mem("jit_constants_bytes", min_mb=0.1)
             eager_str = "Eager-Mem(MB)" if forked else _colored("Eager-Mem(MB) (invalid!)", "yellow")
-            entry[eager_str] = compare_mem("eager_peak_memory_mb")
+            entry[eager_str] = compare_mem("eager_peak_memory")
 
             entries.append(entry)
 
@@ -199,13 +196,13 @@ def _get_backend() -> str:
 
 class BenchJax:
     def __init__(self, request: pytest.FixtureRequest, config: pytest.Config,
-                 run_rounds: int = 20, run_warmup: int = 3, eager_rounds = 5, eager_warmup = 1) -> None:
+                 jit_rounds: int = 20, jit_warmup: int = 3, eager_rounds = 5, eager_warmup = 1) -> None:
         self.request = request
         self.forked = config.getoption("--forked", False)
         self.config = config
         self.output_dir = config.getoption("--bench-jax-output-dir")
-        self.run_rounds = int(run_rounds)
-        self.run_warmup = int(run_warmup)
+        self.jit_rounds = int(jit_rounds)
+        self.jit_warmup = int(jit_warmup)
         self.eager_rounds = int(eager_rounds)
         self.eager_warmup = int(eager_warmup)
         self._fn = None
@@ -230,19 +227,19 @@ class BenchJax:
         compiled = self._compiled if self._compiled is not None else jax.jit(fn)
 
         # warmup
-        for _ in range(self.run_warmup):
+        for _ in range(self.jit_warmup):
             compiled(*args, **kwargs)
         jax.block_until_ready(compiled(*args, **kwargs))
 
         times = []
-        for _ in range(self.run_rounds):
+        for _ in range(self.jit_rounds):
             t0 = time.perf_counter()
             out = compiled(*args, **kwargs)
             jax.block_until_ready(out)
             t1 = time.perf_counter()
             times.append((t1 - t0) * 1000.0)
 
-        return np.mean(times), np.std(times) if self.run_rounds > 1 else np.nan
+        return np.mean(times), np.std(times) if self.jit_rounds > 1 else np.nan
     
     def profile_eager(self, fn, *args, **kwargs):
         # Capture memory on first run
@@ -250,7 +247,7 @@ class BenchJax:
             fn(*args, **kwargs).block_until_ready()
             eager_peak_mem = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
         else:
-            eager_peak_mem = None
+            eager_peak_mem = -1
 
         for _ in range(self.eager_warmup - 1):
             fn(*args, **kwargs)
@@ -263,15 +260,15 @@ class BenchJax:
             jax.block_until_ready(out)
             t1 = time.perf_counter()
             times.append((t1 - t0) * 1000.0)
-            if eager_peak_mem is None:
+            if eager_peak_mem < 0:
                 eager_peak_mem = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
 
         if not self.forked:
             # Profile is invalid without forking, because peakr memory may be inherited from other
             # processes.
-            eager_peak_mem = np.nan 
+            eager_peak_mem = -1
 
-        return np.mean(times), np.std(times), eager_peak_mem if self.run_rounds > 1 else np.nan
+        return np.mean(times), np.std(times), np.int64(eager_peak_mem) if self.jit_rounds > 1 else np.nan
 
     # ---------- high-level orchestration ----------
 
@@ -286,7 +283,7 @@ class BenchJax:
         backend = _get_backend()
         name = getattr(fn, "__name__", "anonymous")
 
-        res = BenchData(jit_rounds=self.run_rounds, jit_warmup=self.run_warmup,
+        res = BenchData(jit_rounds=self.jit_rounds, jit_warmup=self.jit_warmup,
                         eager_rounds=self.eager_rounds, eager_warmup=self.eager_warmup)
         
         # First do eager profiling, to get a good idea of the memory
@@ -296,18 +293,18 @@ class BenchJax:
         res.compile_ms, lowered, compiled = self.compile_time_ms(fn, *args, **kwargs)
         graph_mem = compiled.memory_analysis()
 
-        res.graph_constants = graph_mem.generated_code_size_in_bytes
-        res.graph_peak_memory = graph_mem.peak_memory_in_bytes
-        res.graph_temp_size = graph_mem.temp_size_in_bytes
+        res.jit_constants_bytes = graph_mem.generated_code_size_in_bytes
+        res.jit_peak_bytes = graph_mem.peak_memory_in_bytes
+        res.jit_temporary_bytes = graph_mem.temp_size_in_bytes
         try:
             # It seems likely the handling of jax's folded constants will change in the future
             # Therefore, we catch exceptions here for now...
-            res.graph_constant_memory = folded_constants_bytes(lowered)
+            res.jit_constants_bytes = folded_constants_bytes(lowered)
         except Exception as e:
             warnings.warn(f"Failed to compute folded_constants_bytes ({e})", RuntimeWarning)
-            res.graph_constant_memory = 0
+            res.jit_constants_bytes = 0
 
-        if self.run_rounds > 0:
+        if self.jit_rounds > 0:
             res.jit_mean_ms, res.jit_std_ms = self.profile_run(fn, *args, **kwargs)
 
         if write:
@@ -339,8 +336,8 @@ class BenchJax:
 
 
     def _write_row(self, *, name: str, backend: str, row: BenchData) -> None:
-        row.node_id = self.request.node.nodeid
-        path = nodeid_to_path(row.node_id, output_dir=self.output_dir)
+        node_id = self.request.node.nodeid
+        path = nodeid_to_path(node_id, output_dir=self.output_dir)
 
         row.run_id, row.commit, row.commit_run = self._get_run_data(path)
 
@@ -350,27 +347,21 @@ class BenchJax:
                 # Add a header
                 f.write(f"# pytest-jax-bench\n")
                 f.write(f"# created: {_now_iso()}\n")
-                f.write(f"# test_nodeid: {row.node_id}\n")
+                f.write(f"# test_nodeid: {node_id}\n")
                 f.write(f"# function: {name}\n")
                 f.write(f"# backend: {backend}\n")
                 f.write(f"# First commit: {row.commit}\n")
-                for i,c in enumerate(row.column_descriptions()):
-                    f.write(f"# ({i+1:2d}) {c}\n")
-                f.write(f"#")
-                for i in range(0, len(row.column_descriptions())):
-                    f.write(f"     ({i+1:2d}) ")
+                f.write(row.get_column_header())
                 f.write("\n")
             
             # Add a new line
             f.write(row.formatted_line() + "\n")
-        
-        benchmarks[row.node_id] = path
 
 @pytest.fixture
 def bench_jax(request: pytest.FixtureRequest):
     config = request.config
 
     def _factory(*, rounds: int = 20, warmup: int = 3, gpu_memory: bool = False) -> BenchJax:
-        return BenchJax(request, config, run_rounds=rounds, run_warmup=warmup)
+        return BenchJax(request, config, jit_rounds=rounds, jit_warmup=warmup)
 
     return _factory

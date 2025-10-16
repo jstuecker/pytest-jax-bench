@@ -59,8 +59,8 @@ def plot_run_performance(data, title=None, xaxis="commit", ax=None):
     x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
 
     ax.set_title(title)
-    ax.plot(x, data["run_mean_ms"], marker="o", label="jitted", alpha=0.8)
-    ax.fill_between(x, data["run_mean_ms"]-data["run_std_ms"], data["run_mean_ms"]+data["run_std_ms"], alpha=0.3)
+    ax.plot(x, data["jit_mean_ms"], marker="o", label="jitted", alpha=0.8)
+    ax.fill_between(x, data["jit_mean_ms"]-data["jit_std_ms"], data["jit_mean_ms"]+data["jit_std_ms"], alpha=0.3)
 
     ax.plot(x, data["eager_mean_ms"], marker="o", label="eager", alpha=0.8)
     ax.fill_between(x, data["eager_mean_ms"]-data["eager_std_ms"], data["eager_mean_ms"]+data["eager_std_ms"], alpha=0.3)
@@ -75,11 +75,11 @@ def plot_memory_usage(data, title=None, xaxis="commit", ax=None):
     x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
 
     ax.set_title(title)
-    ax.plot(x, data["graph_peak_memory_mb"], label="jit (peak)", marker="o", alpha=0.8)
-    ax.plot(x, data["eager_peak_memory_mb"], label="eager (peak)", marker="o", alpha=0.8)
+    ax.plot(x, data["jit_peak_bytes"], label="jit (peak)", marker="o", alpha=0.8)
+    ax.plot(x, data["eager_peak_memory"], label="eager (peak)", marker="o", alpha=0.8)
 
-    ax.plot(x, data["graph_temp_size_mb"], label="jit (temp)", ls="dashed", marker="o", alpha=0.8)
-    ax.plot(x, data["graph_constants"], label="jit (const)", ls="dashed", marker="o", alpha=0.8)
+    ax.plot(x, data["jit_temporary_bytes"], label="jit (temp)", ls="dashed", marker="o", alpha=0.8)
+    ax.plot(x, data["jit_constants_bytes"], label="jit (const)", ls="dashed", marker="o", alpha=0.8)
 
     ax.set_ylabel("Memory (MB)")
     ax.legend()
