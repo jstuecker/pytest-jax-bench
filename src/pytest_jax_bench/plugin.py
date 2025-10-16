@@ -22,16 +22,40 @@ import jax
 # ---------------------------
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    group = parser.getgroup("bench-jax")
+    group = parser.getgroup("Pytest-Jax-Bench (ptjb)")
     group.addoption(
-        "--bench-jax-output-dir",
+        "--ptjb-output-dir",
         action="store",
         default=".benchmarks",
         help="Directory for output files (default: .benchmarks)",
     )
+    group.addoption(
+        "--ptjb-tag",
+        action="store",
+        default="default",
+        help="Tag to identify this benchmark run (default: default)",
+    )
+    group.addoption(
+        "--ptjb-plot-summary",
+        action="store_true",
+        default=False,
+        help="Generate a summary plot after the test run (default: False)",
+    )
+    group.addoption(
+        "--ptjb-plot-all",
+        action="store_true",
+        default=False,
+        help="Generate plots for all benchmarks after the test run (default: False)",
+    )
+    group.addoption(
+        "--ptjb-plot-xaxis",
+        action="store",
+        default="commit",
+        help="X-axis for plots - can be 'commit', 'run' or 'tag' (default: commit)",
+    )
 
 def pytest_configure(config: pytest.Config) -> None:
-    outdir = config.getoption("--bench-jax-output-dir")
+    outdir = config.getoption("--ptjb-output-dir")
     os.makedirs(outdir, exist_ok=True)
 
 def select_commit_runs(data, commit):
@@ -44,20 +68,7 @@ def summary_select_commits(data):
         return None, None
 
     new_data = data[-1]
-
-    # Find the comparison data
-    # If there is no other entry with the same commit hash, we consider the last entry of previous commit
-    # If the commit is dirty, we use the first entry with the same commit hash
-    commit = new_data["commit"]
-
-    data_same_commit = select_commit_runs(data, commit)
-
-    if len(data_same_commit) >= 1:
-        comparison_data = data_same_commit[0]
-    elif len(data) >= 2:
-        data_last_commit = data[-2]["commit"]
-    else: # as a fallback compare with self (to keep code simple)
-        data_last_commit = new_data
+    comparison_data = select_commit_runs(data, new_data["commit"])[0]
 
     return new_data, comparison_data
 
@@ -89,9 +100,9 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
     if config.getoption("-v") >= 0:
         forked = config.getoption("--forked", False)
 
-        output_dir = config.getoption("--bench-jax-output-dir")
+        output_dir = config.getoption("--ptjb-output-dir")
 
-        terminalreporter.write_sep("=", "JAX benchmark results")
+        terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) results")
         if not forked:
             terminalreporter.write_line(_colored("Warning: Eager mode memory report is only valid when using --forked!", "yellow"))
 
@@ -109,7 +120,8 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 return s, len(s)
 
             entry["Test"] = str_and_len(report.nodeid)
-            entry["Commit(Run)"] = str_and_len(f'{old["commit"]}({old["commit_run"]})->{new["commit"]}({new["commit_run"]})')
+            # entry["Commit(Run)"] = str_and_len(f'{old["commit"]}({old["commit_run"]})->{new["commit"]}({new["commit_run"]})')
+            entry[f"C.Run"] = str_and_len(f'{old["commit_run"]}->{new["commit_run"]}')
 
             def compare_perf(key, std=0., tol=None, only_different=False):
                 if tol is None: tol = 2.*std
@@ -123,11 +135,12 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 return _colored_diff(txt, v1, v2, tol=tol), len(txt)
             
             def compare_mem(key, only_different=False, min_mb=0.):
-                v1, v2 = old[key], new[key]
+                v1 = old[key]/1024.**2 if old[key] >= 0 else np.nan
+                v2 = new[key]/1024.**2 if new[key] >= 0 else np.nan
                 if only_different and v1 == v2:
                     txt = ""
-                elif max(np.nan_to_num(v1,np.inf), np.nan_to_num(v2,np.inf)) >= min_mb*1024*1024:
-                    txt = f"{v1/1024.**2:.4g}->{v2/1024.**2:.4g}"
+                elif max(np.nan_to_num(v1,np.inf), np.nan_to_num(v2,np.inf)) >= min_mb:
+                    txt = f"{v1:.4g}->{v2:.4g}"
                 else:
                     txt = ""
                 return _colored_diff(txt, v1, v2), len(txt)
@@ -135,9 +148,9 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             entry["Compile(ms)"] = compare_perf("compile_ms", tol=new["compile_ms"]*0.1)
             entry["Jit-Run(ms)"] = compare_perf("jit_mean_ms", std=np.sqrt(new["jit_std_ms"]**2+old["jit_std_ms"]**2))
             entry["Eager-Run(ms)"] = compare_perf("eager_mean_ms", std=np.sqrt(new["eager_std_ms"]**2+old["eager_std_ms"]**2), only_different=True)
-            entry["Jit-Mem(MB)"] = compare_mem("jit_peak_bytes")
-            entry["Constants(MB)"] = compare_mem("jit_constants_bytes", min_mb=0.1)
-            eager_str = "Eager-Mem(MB)" if forked else _colored("Eager-Mem(MB) (invalid!)", "yellow")
+            entry["Jit-Peak(MB)"] = compare_mem("jit_peak_bytes")
+            entry["Jit-Const(MB)"] = compare_mem("jit_constants_bytes", min_mb=0.1)
+            eager_str = "Eager-Peak(MB)" #if forked else _colored("Eager-Mem(MB) (invalid!)", "yellow")
             entry[eager_str] = compare_mem("eager_peak_memory")
 
             entries.append(entry)
@@ -196,21 +209,21 @@ def _get_backend() -> str:
 
 class BenchJax:
     def __init__(self, request: pytest.FixtureRequest, config: pytest.Config,
-                 jit_rounds: int = 20, jit_warmup: int = 3, eager_rounds = 5, eager_warmup = 1) -> None:
+                 jit_rounds: int = 20, jit_warmup: int = 1, eager_rounds = 5, eager_warmup = 1) -> None:
         self.request = request
         self.forked = config.getoption("--forked", False)
         self.config = config
-        self.output_dir = config.getoption("--bench-jax-output-dir")
+        self.output_dir = config.getoption("--ptjb-output-dir")
+        self.tag = config.getoption("--ptjb-tag", "default")
         self.jit_rounds = int(jit_rounds)
         self.jit_warmup = int(jit_warmup)
         self.eager_rounds = int(eager_rounds)
         self.eager_warmup = int(eager_warmup)
+
         self._fn = None
         self._jitted = None
         self._lowered = None
-        self._compiled = None  # may be set by compile_time()
-
-    # ---------- measurement pieces ----------
+        self._compiled = None
 
     def compile_time_ms(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> float:
         """Return compilation time in milliseconds (excluding lowering)."""
@@ -334,12 +347,12 @@ class BenchJax:
 
     # ---------- IO ----------
 
-
     def _write_row(self, *, name: str, backend: str, row: BenchData) -> None:
         node_id = self.request.node.nodeid
         path = nodeid_to_path(node_id, output_dir=self.output_dir)
 
         row.run_id, row.commit, row.commit_run = self._get_run_data(path)
+        row.tag = self.tag
 
         with open(path, "a", encoding="utf-8") as f:
             if row.run_id == 0:
@@ -350,6 +363,7 @@ class BenchJax:
                 f.write(f"# test_nodeid: {node_id}\n")
                 f.write(f"# function: {name}\n")
                 f.write(f"# backend: {backend}\n")
+                f.write(f"# device: {jax.devices()[0].device_kind}\n")
                 f.write(f"# First commit: {row.commit}\n")
                 f.write(row.get_column_header())
                 f.write("\n")

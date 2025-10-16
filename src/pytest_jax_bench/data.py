@@ -10,6 +10,7 @@ class BenchData:
     run_id: int = 0
     commit: str = "unknown"
     commit_run: int = 0
+    tag: str = "default"
     compile_ms: float = np.nan
 
     jit_mean_ms: float = np.nan
@@ -33,7 +34,7 @@ class BenchData:
             txt += f"# {f'({i+1})':>4} {name}\n"
         txt += "#"
         for i,name in enumerate(self.__dataclass_fields__):
-            txt += f"{f'({i+1})  ':>12}"
+            txt += f"{f'({i+1}) ':>12}"
         return txt
     
     def formatted_line(self) -> str:
@@ -55,7 +56,12 @@ class BenchData:
     @classmethod
     def data_type(cls) -> str:
         """Return a numpy dtype string matching the fields of BenchData."""
-        fields = [(f.name, np.dtype(f.type).str) for f in cls.__dataclass_fields__.values()]
+        fields = []
+        for f in cls.__dataclass_fields__.values():
+            if f.type == str:
+                fields.append((f.name, 'U32'))
+            else:
+                fields.append((f.name, np.dtype(f.type).str))
         return np.dtype(fields)
 
 def load_bench_data(file: str, remove_dirt_mark=True) -> np.ndarray:

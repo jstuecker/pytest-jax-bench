@@ -13,10 +13,13 @@ pip install .[mem]
 ```bash
 pip install pytest-forked
 pytest --forked
+pytest --help | grep ptjb -A 2
 ```
 
 ## Todo:
-* Add GPU to header
+* Support new plot options
+* Test 0 run cases
+* Test 1 run cases
 
 * weird filenames
 * Make nice plots
