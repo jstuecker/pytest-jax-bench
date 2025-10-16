@@ -41,22 +41,22 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Do not compare to previous runs of same commit (default: False)",
     )
     group.addoption(
-        "--ptjb-plot-summary",
-        action="store_true",
-        default=False,
-        help="Generate a summary plot after the test run (default: False)",
-    )
-    group.addoption(
         "--ptjb-plot-all",
         action="store_true",
         default=False,
-        help="Generate plots for all benchmarks after the test run (default: False)",
+        help="Generate a joint summary plot after the test run (default: False)",
+    )
+    group.addoption(
+        "--ptjb-plot-each",
+        action="store_true",
+        default=False,
+        help="Generate plots for each benchmark after the test run (default: False)",
     )
     group.addoption(
         "--ptjb-plot-xaxis",
         action="store",
-        default="commit",
-        help="X-axis for plots - can be 'commit', 'run' or 'tag' (default: commit)",
+        default="run",
+        help="X-axis for plots - can be 'commit' or 'run' (default: run)",
     )
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -201,7 +201,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
 
         for line in lines:
             terminalreporter.write_line(line)
-    if config.getoption("--ptjb-plot-summary") or config.getoption("--ptjb-plot-all"):
+    if config.getoption("--ptjb-plot-all") or config.getoption("--ptjb-plot-each"):
         try:
             from . import plots
         except ImportError as e:
@@ -211,19 +211,19 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             return
 
         xaxis = config.getoption("--ptjb-plot-xaxis")
-        if xaxis not in ("commit", "run", "tag"):
+        if xaxis not in ("commit", "run"):
             terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) plotting skipped")
             terminalreporter.write_line(f"Unknown xaxis {xaxis}, must be 'commit', 'run' or 'tag'")
             return
 
-        if config.getoption("--ptjb-plot-summary"):
+        if config.getoption("--ptjb-plot-all"):
             terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) summary plot")
 
             plots.plot_all_benchmarks_together(bench_dir=output_dir, xaxis=xaxis, save="png")
             terminalreporter.write_line(f"Summary plot saved to {os.path.join(output_dir, 'all_benchmarks.png')}")
 
-        if config.getoption("--ptjb-plot-all"):
-            terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) all benchmarks plot")
+        if config.getoption("--ptjb-plot-each"):
+            terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) all benchmarks plots")
             
             plots.plot_all_benchmarks_individually(bench_dir=output_dir, xaxis=xaxis, save="png")
             terminalreporter.write_line(f"All benchmarks plots saved to {os.path.join(output_dir)}")

@@ -22,5 +22,8 @@ mem = ["psutil>=5.9", "pynvml>=11"]
 [project.entry-points.pytest11]
 pytest_jax_bench = "pytest_jax_bench.plugin"
 
+[project.scripts]
+ptjb-plot = "pytest_jax_bench.cli_plot:main"
+
 [tool.pytest.ini_options]
 addopts = "-q"

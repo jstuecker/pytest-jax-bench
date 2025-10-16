@@ -16,11 +16,5 @@ pytest --forked
 pytest --help | grep ptjb -A 2
 ```
 
-## Todo:
-* Support new plot options
-* Test 0 run cases
-* Test 1 run cases
-
-* weird filenames
-* Make nice plots
-* cli for plots?
+## Todo
+Readme

@@ -173,12 +173,12 @@ def plot_all_benchmarks_together(bench_dir="../.benchmarks", xaxis="commit", sav
         assert save in {"png", "pdf"}
         fig.savefig(os.path.join(bench_dir, "all_benchmarks.%s" % save))
         plt.close(fig)
+    else:
+        plt.show()
 
     return fig, axs
 
 def plot_all_benchmarks_individually(bench_dir="../.benchmarks", xaxis="commit", save="png"):
-    assert save
-
     files = find_files(bench_dir)
     
     figs = []
@@ -195,3 +195,5 @@ def plot_all_benchmarks_individually(bench_dir="../.benchmarks", xaxis="commit",
             assert save in {"png", "pdf"}
             fig.savefig(os.path.join(bench_dir, title + "." + save))
             plt.close(fig)
+        else:
+            plt.show()
