@@ -135,7 +135,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 if tol is None: tol = 2.*std
                 v1, v2 = old[key], new[key]
                 if same:
-                    txt = f"{v1:.2f}"
+                    txt = f"{v2:.2f}"
                 elif only_different and np.abs(v1 - v2) <= std*2.:
                     txt = ""
                 elif np.isnan(v1) and np.isnan(v2):
@@ -226,7 +226,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) all benchmarks plot")
             
             plots.plot_all_benchmarks_individually(bench_dir=output_dir, xaxis=xaxis, save="png")
-            terminalreporter.write_line(f"All benchmarks plot saved to {os.path.join(output_dir)}")
+            terminalreporter.write_line(f"All benchmarks plots saved to {os.path.join(output_dir)}")
 
 # ---------------------------
 # StableHLO memory estimate utils (very rough)

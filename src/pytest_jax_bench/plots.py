@@ -43,7 +43,7 @@ def prepare_xaxis(data, xaxis="commit", ax=None):
         ax2 = ax.twiny()
         ax2.set_xlim(0, len(data))
         ax2.set_xticks(first_occ)
-        ax2.set_xticklabels(commits, fontsize=8, rotation=90 if len(commits) > 10 else 0)
+        ax2.set_xticklabels(commits, fontsize=8, rotation=90)
     elif xaxis == "commit":
         x = com_of_run
 
@@ -56,6 +56,9 @@ def prepare_xaxis(data, xaxis="commit", ax=None):
     return x, ax
 
 def plot_run_performance(data, title=None, xaxis="commit", ax=None):
+    if len(np.unique(data["tag"])) > 1:
+        return plot_run_performance_tagged(data, title=title, xaxis=xaxis, ax=ax)
+
     x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
 
     ax.set_title(title)
@@ -72,7 +75,36 @@ def plot_run_performance(data, title=None, xaxis="commit", ax=None):
 
     return ax
 
+def plot_run_performance_tagged(data, title=None, xaxis="commit", ax=None):
+    x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
+    ax.set_title(title)
+
+    tags = np.unique(data["tag"])
+    for i,tag in enumerate(tags):
+        data_t = data[data["tag"] == tag]
+        xt = x[data["tag"] == tag]
+
+        color = f"C{i}"
+        ax.plot(xt, data_t["jit_mean_ms"], marker="o", label=tag, alpha=0.8, color=color)
+        ax.fill_between(xt, data_t["jit_mean_ms"]-data_t["jit_std_ms"], data_t["jit_mean_ms"]+data_t["jit_std_ms"], alpha=0.6, color=color)
+
+        ax.plot(xt, data_t["eager_mean_ms"], marker="o", alpha=0.2, color=color, ls="dashed")
+        ax.fill_between(xt, data_t["eager_mean_ms"]-data_t["eager_std_ms"], data_t["eager_mean_ms"]+data_t["eager_std_ms"], alpha=0.2, color=color)
+        
+        if np.any((data_t["jit_mean_ms"] > 0) | (data_t["eager_mean_ms"] > 0)):
+            ax.set_yscale("log")
+    ax.plot([], [], label="jitted", color="k", marker="o", alpha=0.8)
+    ax.plot([], [], label="eager", color="k", marker="o", alpha=0.2, ls="dashed")
+
+    ax.set_ylabel("Time (ms)")
+    ax.legend()
+
+    return ax
+
 def plot_memory_usage(data, title=None, xaxis="commit", ax=None):
+    if len(np.unique(data["tag"])) > 1:
+        return plot_memory_usage_tagged(data, title=title, xaxis=xaxis, ax=ax)
+
     x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
 
     ax.set_title(title)
@@ -80,7 +112,8 @@ def plot_memory_usage(data, title=None, xaxis="commit", ax=None):
     ax.plot(x, data["eager_peak_memory"], label="eager (peak)", marker="o", alpha=0.8)
 
     ax.plot(x, data["jit_temporary_bytes"], label="jit (temp)", ls="dashed", marker="o", alpha=0.8)
-    ax.plot(x, data["jit_constants_bytes"], label="jit (const)", ls="dashed", marker="o", alpha=0.8)
+    if np.any(data["jit_constants_bytes"] > 1e3):
+        ax.plot(x, data["jit_constants_bytes"], label="jit (const)", ls="dashed", marker="o", alpha=0.8)
 
     ax.set_ylabel("Memory (MB)")
     ax.legend()
@@ -88,6 +121,34 @@ def plot_memory_usage(data, title=None, xaxis="commit", ax=None):
         ax.set_yscale("log")
 
     return ax
+
+def plot_memory_usage_tagged(data, title=None, xaxis="commit", ax=None):
+    x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
+    ax.set_title(title)
+
+    tags = np.unique(data["tag"])
+    for i,tag in enumerate(tags):
+        data_t = data[data["tag"] == tag]
+        xt = x[data["tag"] == tag]
+        label = tag if tag != "base" else ""
+
+        color = f"C{i}"
+
+        ax.plot(xt, data_t["jit_peak_bytes"]/1024.**2, label=f"{label}", marker="o", alpha=0.8, color=color)
+        # So far, eager memory doesn't work well with tags. Disable for now.
+        # ax.plot(xt, data_t["eager_peak_memory"]/1024.**2, marker="x", alpha=0.8, color=color, ls="dashed")
+        if np.any((data["jit_peak_bytes"] > 0) | (data["eager_peak_memory"] > 0)):
+            ax.set_yscale("log")
+
+    # ax.plot([], [], label="jit (peak)", color="k", marker="o")
+    # ax.plot([], [], label="eager (peak)", ls="dashed", color="k", marker="x")
+
+    ax.set_ylabel("Jit-Peak-Memory (MB)")
+    ax.legend()
+    
+
+    return ax
+
 
 def find_files(bench_dir="../.benchmarks"):
     files = os.listdir(bench_dir)
