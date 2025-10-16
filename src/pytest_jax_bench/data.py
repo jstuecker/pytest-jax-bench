@@ -10,7 +10,7 @@ class BenchData:
     run_id: int = 0
     commit: str = "unknown"
     commit_run: int = 0
-    tag: str = "default"
+    tag: str = "base"
     compile_ms: float = np.nan
 
     jit_mean_ms: float = np.nan

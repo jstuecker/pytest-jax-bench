@@ -31,7 +31,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption(
         "--ptjb-tag",
         action="store",
-        default="default",
+        default="base",
         help="Tag to identify this benchmark run (default: default)",
     )
     group.addoption(
@@ -57,17 +57,19 @@ def pytest_configure(config: pytest.Config) -> None:
     outdir = config.getoption("--ptjb-output-dir")
     os.makedirs(outdir, exist_ok=True)
 
-def select_commit_runs(data, commit):
+def select_commit_runs(data, commit, tag=None):
     commit_base = commit.rstrip("+")
-    mask = np.where((data["commit"] == commit_base) | (data["commit"] == commit_base + "+"))[0]
+    mask = (data["commit"] == commit_base) | (data["commit"] == commit_base + "+")
+    if tag is not None:
+        mask &= (data["tag"] == tag)
     return data[mask]
 
-def summary_select_commits(data):
+def get_comparison_data(data, tag="base"):
     if len(data) == 0:
         return None, None
 
-    new_data = data[-1]
-    comparison_data = select_commit_runs(data, new_data["commit"])[0]
+    new_data = data[data["tag"] == tag][-1]
+    comparison_data = select_commit_runs(data, new_data["commit"], new_data["tag"])[0]
 
     return new_data, comparison_data
 
@@ -106,21 +108,19 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             terminalreporter.write_line(_colored("Warning: Eager mode memory report is only valid when using --forked!", "yellow"))
 
         entries = []
-        for report in terminalreporter.getreports("passed"):
-            path = nodeid_to_path(report.nodeid, output_dir=output_dir)
-            data = load_bench_data(path)
-            new, old = summary_select_commits(data)
+        def add_entry(data, nodeid, tag=None):
+            new, old = get_comparison_data(data, tag=tag)
             if new is None: 
-                continue
+                return
 
             entry = {}
 
             def str_and_len(s):
                 return s, len(s)
 
-            entry["Test"] = str_and_len(report.nodeid)
-            # entry["Commit(Run)"] = str_and_len(f'{old["commit"]}({old["commit_run"]})->{new["commit"]}({new["commit_run"]})')
-            entry[f"C.Run"] = str_and_len(f'{old["commit_run"]}->{new["commit_run"]}')
+            entry["Test"] = str_and_len(nodeid)
+            entry["C.Run"] = str_and_len(f'{old["commit_run"]}->{new["commit_run"]}')
+            entry["Tag"] = str_and_len(new["tag"])
 
             def compare_perf(key, std=0., tol=None, only_different=False):
                 if tol is None: tol = 2.*std
@@ -134,7 +134,10 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 else:
                     txt = f"{v1:.2f}->{v2:.2f}"
                 return _colored_diff(txt, v1, v2, tol=tol), len(txt)
-            
+
+            entry["Compile(ms)"] = compare_perf("compile_ms", tol=new["compile_ms"]*0.1)
+            entry["Jit-Run(ms)"] = compare_perf("jit_mean_ms", std=np.sqrt(new["jit_std_ms"]**2+old["jit_std_ms"]**2))
+
             def compare_mem(key, only_different=False, min_mb=0.):
                 v1 = old[key]/1024.**2 if old[key] >= 0 else np.nan
                 v2 = new[key]/1024.**2 if new[key] >= 0 else np.nan
@@ -143,13 +146,11 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 elif np.isnan(v1) and np.isnan(v2):
                     txt = ""
                 elif max(np.nan_to_num(v1,np.inf), np.nan_to_num(v2,np.inf)) >= min_mb:
-                    txt = f"{v1:.4g}->{v2:.4g}"
+                    txt = f"{v1:.3g}->{v2:.3g}"
                 else:
                     txt = ""
                 return _colored_diff(txt, v1, v2), len(txt)
 
-            entry["Compile(ms)"] = compare_perf("compile_ms", tol=new["compile_ms"]*0.1)
-            entry["Jit-Run(ms)"] = compare_perf("jit_mean_ms", std=np.sqrt(new["jit_std_ms"]**2+old["jit_std_ms"]**2))
             entry["Eager-Run(ms)"] = compare_perf("eager_mean_ms", std=np.sqrt(new["eager_std_ms"]**2+old["eager_std_ms"]**2))
             entry["Jit-Peak(MB)"] = compare_mem("jit_peak_bytes")
             entry["Jit-Const(MB)"] = compare_mem("jit_constants_bytes", min_mb=0.1)
@@ -157,6 +158,14 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             entry[eager_str] = compare_mem("eager_peak_memory")
 
             entries.append(entry)
+
+        for report in terminalreporter.getreports("passed"):
+            path = nodeid_to_path(report.nodeid, output_dir=output_dir)
+            data = load_bench_data(path, report.nodeid)
+            run = data[-1]["run_id"]
+            tags = np.unique(data["tag"][data["run_id"] == run])
+            for tag in tags:
+                add_entry(data, report.nodeid, tag=tag)
 
         if len(entries) == 0:
             terminalreporter.write_line("No benchmark data collected.")
@@ -200,6 +209,26 @@ def _git_commit_short() -> str:
     except Exception:
         return "unknown"
 
+def _get_run_info(path):
+    if os.path.exists(path):
+        data = load_bench_data(path)
+    else:
+        data = np.zeros((0,), dtype=BenchData.data_type())
+
+    if len(data) > 0:
+        run_id = np.max(data["run_id"]) + 1
+    else:
+        run_id = 0
+
+    current_commit = _git_commit_short()
+    runs = select_commit_runs(data, current_commit)
+    if len(runs) > 0:
+        commit_run = np.max(runs["commit_run"]) + 1
+    else:
+        commit_run = 0
+
+    return run_id, current_commit, commit_run
+
 def _get_backend() -> str:
     try:
         return jax.default_backend()  # "cpu", "gpu", "tpu"
@@ -222,6 +251,10 @@ class JaxBench:
         self.jit_warmup = int(jit_warmup)
         self.eager_rounds = int(eager_rounds)
         self.eager_warmup = int(eager_warmup)
+
+        node_id = self.request.node.nodeid
+        path = nodeid_to_path(node_id, output_dir=self.output_dir)
+        self.run_id, self.commit, self.commit_run = _get_run_info(path)
 
     def compile_time_ms(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> float:
         """Return compilation time in milliseconds (excluding lowering)."""
@@ -321,38 +354,18 @@ class JaxBench:
             self._write_row(res=res, tag=tag)
 
         return res
-    
-    def _get_run_data(self, path):
-        if os.path.exists(path):
-            data = load_bench_data(path)
-        else:
-            data = np.zeros((0,), dtype=BenchData.data_type())
-
-        if len(data) > 0:
-            run_id = np.max(data["run_id"]) + 1
-        else:
-            run_id = 0
-
-        current_commit = _git_commit_short()
-        runs = select_commit_runs(data, current_commit)
-        if len(runs) > 0:
-            commit_run = np.max(runs["commit_run"]) + 1
-        else:
-            commit_run = 0
-
-        return run_id, current_commit, commit_run
 
     # ---------- IO ----------
 
     def _write_row(self, res: BenchData, tag: str = "default") -> None:
         node_id = self.request.node.nodeid
         path = nodeid_to_path(node_id, output_dir=self.output_dir)
-
-        res.run_id, res.commit, res.commit_run = self._get_run_data(path)
+        res.run_id, res.commit, res.commit_run = self.run_id, self.commit, self.commit_run
         res.tag = self.tag if tag is None else tag
 
+        file_size = os.path.getsize(path) if os.path.exists(path) else 0
         with open(path, "a", encoding="utf-8") as f:
-            if res.run_id == 0:
+            if file_size == 0:
                 print("Run data will be written to:", path)
                 # Add a header
                 f.write(f"# pytest-jax-bench\n")
