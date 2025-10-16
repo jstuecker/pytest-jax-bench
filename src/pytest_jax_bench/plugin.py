@@ -322,7 +322,10 @@ class JaxBench:
             t1 = time.perf_counter()
             times.append((t1 - t0) * 1000.0)
 
-        return np.mean(times), np.std(times) if self.jit_rounds > 1 else np.nan
+        if self.jit_rounds >= 1:
+            return np.mean(times), np.std(times)
+        else:
+            return np.nan, np.nan
     
     def profile_eager(self, fn, *args, **kwargs):
         # Capture memory on first run
@@ -351,7 +354,10 @@ class JaxBench:
             # processes.
             eager_peak_mem = -1
 
-        return np.mean(times), np.std(times), np.int64(eager_peak_mem) if self.jit_rounds > 1 else np.nan
+        if self.eager_rounds >= 1:
+            return np.mean(times), np.std(times), eager_peak_mem
+        else:
+            return np.nan, np.nan, eager_peak_mem
 
     # ---------- high-level orchestration ----------
 

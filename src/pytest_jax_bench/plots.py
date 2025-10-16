@@ -108,12 +108,12 @@ def plot_memory_usage(data, title=None, xaxis="commit", ax=None):
     x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
 
     ax.set_title(title)
-    ax.plot(x, data["jit_peak_bytes"], label="jit (peak)", marker="o", alpha=0.8)
-    ax.plot(x, data["eager_peak_memory"], label="eager (peak)", marker="o", alpha=0.8)
+    ax.plot(x, data["jit_peak_bytes"]/1024.**2, label="jit (peak)", marker="o", alpha=0.8)
+    ax.plot(x[data["eager_peak_memory"]>=0], data["eager_peak_memory"][data["eager_peak_memory"]>=0]/1024.**2, label="eager (peak)", marker="o", alpha=0.8)
 
-    ax.plot(x, data["jit_temporary_bytes"], label="jit (temp)", ls="dashed", marker="o", alpha=0.8)
+    ax.plot(x, data["jit_temporary_bytes"]/1024.**2, label="jit (temp)", ls="dashed", marker="o", alpha=0.8)
     if np.any(data["jit_constants_bytes"] > 1e3):
-        ax.plot(x, data["jit_constants_bytes"], label="jit (const)", ls="dashed", marker="o", alpha=0.8)
+        ax.plot(x, data["jit_constants_bytes"]/1024.**2, label="jit (const)", ls="dashed", marker="o", alpha=0.8)
 
     ax.set_ylabel("Memory (MB)")
     ax.legend()
