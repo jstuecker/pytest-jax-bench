@@ -29,10 +29,16 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Directory for output files (default: .benchmarks)",
     )
     group.addoption(
-        "--ptjb-tag",
+        "--ptjb-basetag",
         action="store",
         default="base",
-        help="Tag to identify this benchmark run (default: default)",
+        help="Modify basetag for this benchmark run (default: base)",
+    )
+    group.addoption(
+        "--ptjb-no-compare",
+        action="store_true",
+        default=False,
+        help="Do not compare to previous runs of same commit (default: False)",
     )
     group.addoption(
         "--ptjb-plot-summary",
@@ -102,6 +108,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
         forked = config.getoption("--forked", False)
 
         output_dir = config.getoption("--ptjb-output-dir")
+        no_compare = config.getoption("--ptjb-no-compare", False)
 
         terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) results")
         if not forked:
@@ -112,6 +119,8 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             new, old = get_comparison_data(data, tag=tag)
             if new is None: 
                 return
+            
+            same = (new["run_id"] == old["run_id"]) or no_compare
 
             entry = {}
 
@@ -119,13 +128,15 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 return s, len(s)
 
             entry["Test"] = str_and_len(nodeid)
-            entry["C.Run"] = str_and_len(f'{old["commit_run"]}->{new["commit_run"]}')
+            entry["C.Run"] = str_and_len(f"{new["commit_run"]}" if same else f'{old["commit_run"]}->{new["commit_run"]}')
             entry["Tag"] = str_and_len(new["tag"])
 
             def compare_perf(key, std=0., tol=None, only_different=False):
                 if tol is None: tol = 2.*std
                 v1, v2 = old[key], new[key]
-                if only_different and np.abs(v1 - v2) <= std*2.:
+                if same:
+                    txt = f"{v1:.2f}"
+                elif only_different and np.abs(v1 - v2) <= std*2.:
                     txt = ""
                 elif np.isnan(v1) and np.isnan(v2):
                     txt = ""
@@ -141,7 +152,9 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             def compare_mem(key, only_different=False, min_mb=0.):
                 v1 = old[key]/1024.**2 if old[key] >= 0 else np.nan
                 v2 = new[key]/1024.**2 if new[key] >= 0 else np.nan
-                if only_different and v1 == v2:
+                if same:
+                    txt = f"{v2:.3g}"
+                elif only_different and v1 == v2:
                     txt = ""
                 elif np.isnan(v1) and np.isnan(v2):
                     txt = ""
@@ -246,7 +259,7 @@ class JaxBench:
         self.config = request.config
         self.forked = self.config.getoption("--forked", False)
         self.output_dir = self.config.getoption("--ptjb-output-dir")
-        self.tag = self.config.getoption("--ptjb-tag", "default")
+        self.tag = self.config.getoption("--ptjb-basetag", "default")
         self.jit_rounds = int(jit_rounds)
         self.jit_warmup = int(jit_warmup)
         self.eager_rounds = int(eager_rounds)
@@ -255,6 +268,8 @@ class JaxBench:
         node_id = self.request.node.nodeid
         path = nodeid_to_path(node_id, output_dir=self.output_dir)
         self.run_id, self.commit, self.commit_run = _get_run_info(path)
+
+        self.measurement = 0
 
     def compile_time_ms(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> float:
         """Return compilation time in milliseconds (excluding lowering)."""
@@ -305,7 +320,7 @@ class JaxBench:
             if eager_peak_mem < 0:
                 eager_peak_mem = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
 
-        if not self.forked:
+        if (not self.forked) or (self.measurement > 0):
             # Profile is invalid without forking, because peakr memory may be inherited from other
             # processes.
             eager_peak_mem = -1
@@ -352,6 +367,8 @@ class JaxBench:
 
         if write:
             self._write_row(res=res, tag=tag)
+        
+        self.measurement += 1
 
         return res
 
