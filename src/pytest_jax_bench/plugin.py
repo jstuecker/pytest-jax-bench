@@ -128,7 +128,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 return s, len(s)
 
             entry["Test"] = str_and_len(nodeid)
-            entry["C.Run"] = str_and_len(f"{new["commit_run"]}" if same else f'{old["commit_run"]}->{new["commit_run"]}')
+            entry["C.Run"] = str_and_len(f'{new["commit_run"]}' if same else f'{old["commit_run"]}->{new["commit_run"]}')
             entry["Tag"] = str_and_len(new["tag"])
 
             def compare_perf(key, std=0., tol=None, only_different=False):
