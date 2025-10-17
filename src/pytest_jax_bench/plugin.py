@@ -246,7 +246,7 @@ def _git_commit_short() -> str:
         if out[-6:] == "-dirty":
             out = out[:-6] + "+"
         return out
-    except Exception:
+    except subprocess.CalledProcessError:
         return "unknown"
 
 def _get_run_info(path):
@@ -269,11 +269,6 @@ def _get_run_info(path):
 
     return run_id, current_commit, commit_run
 
-def _get_backend() -> str:
-    try:
-        return jax.default_backend()  # "cpu", "gpu", "tpu"
-    except Exception:
-        return "unknown"
 
 # ---------------------------
 # The JaxBench core object
@@ -422,7 +417,7 @@ class JaxBench:
                 f.write(f"# pytest-jax-bench\n")
                 f.write(f"# created: {_now_iso()}\n")
                 f.write(f"# test_nodeid: {node_id}\n")
-                f.write(f"# backend: {_get_backend()}\n")
+                f.write(f"# backend: {jax.default_backend()}\n")
                 f.write(f"# device: {jax.devices()[0].device_kind}\n")
                 f.write(f"# First commit: {res.commit}\n")
                 f.write(res.get_column_header())
