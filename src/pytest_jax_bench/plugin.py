@@ -146,7 +146,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                     txt = f"{v1:.1f}->{v2:.1f}"
                 return _colored_diff(txt, v1, v2, tol=tol), len(txt)
 
-            entry["Compile(ms)"] = compare_perf("compile_ms", tol=new["compile_ms"]*0.1)
+            entry["Compile(ms)"] = compare_perf("compile_ms", tol=np.maximum(new["compile_ms"]*0.2, 20.))
             entry["Jit-Run(ms)"] = compare_perf("jit_mean_ms", std=np.sqrt(new["jit_std_ms"]**2+old["jit_std_ms"]**2))
 
             def compare_mem(key, only_different=False, min_mb=0.):
