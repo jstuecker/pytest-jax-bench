@@ -71,6 +71,8 @@ def plot_run_performance(data, title=None, xaxis="commit", ax=None):
 
     ax.plot(x, data["eager_mean_ms"], marker="o", label="eager", alpha=0.8)
     ax.fill_between(x, data["eager_mean_ms"]-data["eager_std_ms"], data["eager_mean_ms"]+data["eager_std_ms"], alpha=0.3)
+
+    ax.plot(x, data["compile_ms"], marker="o", label="compile", alpha=0.8)
     
     ax.set_ylabel("Time (ms)")
     ax.legend()
