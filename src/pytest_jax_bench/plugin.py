@@ -256,14 +256,14 @@ def _get_run_info(path):
         data = np.zeros((0,), dtype=BenchData.data_type())
 
     if len(data) > 0:
-        run_id = np.max(data["run_id"]) + 1
+        run_id = int(np.max(data["run_id"]) + 1)
     else:
         run_id = 0
 
     current_commit = _git_commit_short()
     runs = select_commit_runs(data, current_commit)
     if len(runs) > 0:
-        commit_run = np.max(runs["commit_run"]) + 1
+        commit_run = int(np.max(runs["commit_run"]) + 1)
     else:
         commit_run = 0
 
@@ -309,7 +309,7 @@ class JaxBench:
         lowered = fn_jit.lower(*args, **kwargs)
         compiled = lowered.compile()
         t2 = time.perf_counter()
-        return (t2 - t1) * 1000.0, lowered, compiled
+        return float(np.round((t2 - t1) * 1000.0, 3)), lowered, compiled
 
     def profile_jit(self, fn_jit: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[float, float]:
         """Return (mean_ms, std_ms, rounds, warmup)."""
@@ -326,9 +326,9 @@ class JaxBench:
             times.append((t1 - t0) * 1000.0)
 
         if self.jit_rounds >= 1:
-            return np.mean(times), np.std(times)
+            return float(np.round(np.mean(times), 3)), float(np.round(np.std(times), 3))
         else:
-            return np.nan, np.nan
+            return float('nan'), float('nan')
     
     def profile_eager(self, fn, *args, **kwargs):
         # Capture memory on first run
@@ -358,9 +358,9 @@ class JaxBench:
             eager_peak_bytes = -1
 
         if self.eager_rounds >= 1:
-            return np.mean(times), np.std(times), eager_peak_bytes
+            return float(np.round(np.mean(times), 3)), float(np.round(np.std(times), 3)), eager_peak_bytes
         else:
-            return np.nan, np.nan, eager_peak_bytes
+            return float("nan"), float("nan"), eager_peak_bytes
 
     # ---------- high-level orchestration ----------
 

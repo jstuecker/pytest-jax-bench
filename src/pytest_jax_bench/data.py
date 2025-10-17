@@ -11,12 +11,12 @@ class BenchData:
     commit: str = "unknown"
     commit_run: int = 0
     tag: str = "base"
-    compile_ms: float = np.nan
-
-    jit_mean_ms: float = np.nan
-    jit_std_ms: float = np.nan
-    eager_mean_ms: float = np.nan
-    eager_std_ms: float = np.nan
+    
+    compile_ms: float = float('nan')
+    jit_mean_ms: float = float('nan')
+    jit_std_ms: float = float('nan')
+    eager_mean_ms: float = float('nan')
+    eager_std_ms: float = float('nan')
 
     jit_peak_bytes: int = -1
     jit_constants_bytes: int = -1
