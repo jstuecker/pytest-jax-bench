@@ -68,3 +68,10 @@ def test_static_arg(request):
 
     jb = JaxBench(request, jit_rounds=10, jit_warmup=2, eager_rounds=5, eager_warmup=1)
     jb.measure(fn=f, fn_jit=f.jit, x=x, a=3.0)
+
+def test_no_fixture():
+    x = jnp.ones((128, 128, 128), dtype=jnp.float32)
+
+    jb = JaxBench(jit_rounds=10, jit_warmup=2, eager_rounds=5, eager_warmup=1)
+    res = jb.measure(fn=rfft, fn_jit=jax.jit(rfft), x=x, write=False)
+    print(res)

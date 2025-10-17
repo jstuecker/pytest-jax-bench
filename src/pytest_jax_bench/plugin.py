@@ -250,7 +250,7 @@ def _git_commit_short() -> str:
         return "unknown"
 
 def _get_run_info(path):
-    if os.path.exists(path):
+    if path is not None and os.path.exists(path):
         data = load_bench_data(path)
     else:
         data = np.zeros((0,), dtype=BenchData.data_type())
@@ -275,21 +275,30 @@ def _get_run_info(path):
 # ---------------------------
 
 class JaxBench:
-    def __init__(self, request: pytest.FixtureRequest,
+    def __init__(self, request: pytest.FixtureRequest | None = None, path = None,
                  jit_rounds: int = 20, jit_warmup: int = 1, eager_rounds = 5, eager_warmup = 1) -> None:
-        self.request = request
-        self.config = request.config
-        self.forked = self.config.getoption("--forked", False)
-        self.output_dir = self.config.getoption("--ptjb-output-dir")
-        self.tag = self.config.getoption("--ptjb-basetag", "default")
+        
+        if request is not None:
+            self.forked = request.config.getoption("--forked", False)
+            self.output_dir = request.config.getoption("--ptjb-output-dir")
+            self.tag = request.config.getoption("--ptjb-basetag", "base")
+            self.node_id = request.node.nodeid
+            if path is not None:
+                raise ValueError("Path is set through request. Only pass path outside of pytest.")
+            self.path = nodeid_to_path(self.node_id, output_dir=self.output_dir)
+        else: # Usage outside of pytest, some aspects will be missing
+            self.forked = False
+            self.tag = "base"
+            self.node_id = None
+            self.path = path
+            self.output_dir = os.path.dirname(path) if path is not None else None
+
         self.jit_rounds = int(jit_rounds)
         self.jit_warmup = int(jit_warmup)
         self.eager_rounds = int(eager_rounds)
         self.eager_warmup = int(eager_warmup)
 
-        node_id = self.request.node.nodeid
-        path = nodeid_to_path(node_id, output_dir=self.output_dir)
-        self.run_id, self.commit, self.commit_run = _get_run_info(path)
+        self.run_id, self.commit, self.commit_run = _get_run_info(self.path)
 
         self.measurement = 0
 
@@ -304,7 +313,6 @@ class JaxBench:
 
     def profile_jit(self, fn_jit: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[float, float]:
         """Return (mean_ms, std_ms, rounds, warmup)."""
-        # warmup
         for _ in range(self.jit_warmup):
             fn_jit(*args, **kwargs)
         jax.block_until_ready(fn_jit(*args, **kwargs))
@@ -345,8 +353,8 @@ class JaxBench:
                 eager_peak_bytes = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
 
         if (not self.forked) or (self.measurement > 0):
-            # Profile is invalid without forking, because peakr memory may be inherited from other
-            # processes.
+            # Profile is invalid without forking, because peak memory may be inherited from other
+            # tests.
             eager_peak_bytes = -1
 
         if self.eager_rounds >= 1:
@@ -370,6 +378,9 @@ class JaxBench:
         res = BenchData(jit_rounds=self.jit_rounds, jit_warmup=self.jit_warmup,
                         eager_rounds=self.eager_rounds, eager_warmup=self.eager_warmup)
         
+        res.run_id, res.commit, res.commit_run = self.run_id, self.commit, self.commit_run
+        res.tag = self.tag if tag is None else tag
+        
         # First do eager profiling, to get a good idea of the memory
         if fn is not None:
             res.eager_mean_ms, res.eager_std_ms, res.eager_peak_bytes = self.profile_eager(fn, *args, **kwargs)
@@ -383,7 +394,7 @@ class JaxBench:
             res.jit_temporary_bytes = graph_mem.temp_size_in_bytes
             try:
                 # It seems likely the handling of jax's folded constants will change in the future
-                # Therefore, we catch exceptions here for now...
+                # Therefore, we catch arbitrary exceptions here for now...
                 res.jit_constants_bytes = folded_constants_bytes(lowered)
             except Exception as e:
                 warnings.warn(f"Failed to compute folded_constants_bytes ({e})", RuntimeWarning)
@@ -392,31 +403,25 @@ class JaxBench:
             if self.jit_rounds > 0:
                 res.jit_mean_ms, res.jit_std_ms = self.profile_jit(fn_jit, *args, **kwargs)
 
-        if write:
-            self._write_row(res=res, tag=tag)
+        if write and self.path is not None:
+            self._write_row(res)
+        elif write:
+            raise ValueError("Please either provide a path on creation or set write=False.")
         
         self.measurement += 1
 
         return res
 
-    # ---------- IO ----------
-
-    def _write_row(self, res: BenchData, tag: str = "default") -> None:
+    def _write_row(self, res: BenchData) -> None:
         os.makedirs(self.output_dir, exist_ok=True)
 
-        node_id = self.request.node.nodeid
-        path = nodeid_to_path(node_id, output_dir=self.output_dir)
-        res.run_id, res.commit, res.commit_run = self.run_id, self.commit, self.commit_run
-        res.tag = self.tag if tag is None else tag
-
-        file_size = os.path.getsize(path) if os.path.exists(path) else 0
-        with open(path, "a", encoding="utf-8") as f:
+        file_size = os.path.getsize(self.path) if os.path.exists(self.path) else 0
+        with open(self.path, "a", encoding="utf-8") as f:
             if file_size == 0:
-                print("Run data will be written to:", path)
                 # Add a header
                 f.write(f"# pytest-jax-bench\n")
                 f.write(f"# created: {_now_iso()}\n")
-                f.write(f"# test_nodeid: {node_id}\n")
+                f.write(f"# test_nodeid: {self.node_id}\n")
                 f.write(f"# backend: {jax.default_backend()}\n")
                 f.write(f"# device: {jax.devices()[0].device_kind}\n")
                 f.write(f"# First commit: {res.commit}\n")
