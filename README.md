@@ -93,7 +93,7 @@ So far, this doesn't support eager memory at all (even when using `--forked`)
 In this case tests with several tags will be saved to the same file and they will be plotted together by default. Note that the plots skip some less relevant aspects in this case to keep it simple.
 
 ### Examples:
-For more examples check the [tests](tests) directory
+For more examples check the [examples](tests/test_examples.py).
 
 ## Outputs
 

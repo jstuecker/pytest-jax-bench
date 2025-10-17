@@ -176,7 +176,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             entries.append(entry)
 
         for report in terminalreporter.getreports("passed"):
-            path = nodeid_to_path(report.nodeid, output_dir=output_dir)
+            path = nodeid_to_path(report.nodeid, output_dir=output_dir) + ".csv"
             if not os.path.exists(path):
                 continue
             data = load_bench_data(path, report.nodeid)
@@ -209,6 +209,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
 
         for line in lines:
             terminalreporter.write_line(line)
+
     if config.getoption("--ptjb-plot-all") or config.getoption("--ptjb-plot-each"):
         try:
             from . import plots
@@ -225,16 +226,12 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             return
 
         if config.getoption("--ptjb-plot-all"):
-            terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) summary plot")
-
             plots.plot_all_benchmarks_together(bench_dir=output_dir, xaxis=xaxis, save="png")
             terminalreporter.write_line(f"Summary plot saved to {os.path.join(output_dir, 'all_benchmarks.png')}")
 
         if config.getoption("--ptjb-plot-each"):
-            terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) all benchmarks plots")
-            
             plots.plot_all_benchmarks_individually(bench_dir=output_dir, xaxis=xaxis, save="png")
-            terminalreporter.write_line(f"All benchmarks plots saved to {os.path.join(output_dir)}")
+            terminalreporter.write_line(f"All PTJB benchmarks plots saved to {os.path.join(output_dir)}")
 
 # ---------------------------
 # StableHLO memory estimate utils (very rough)
