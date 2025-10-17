@@ -13,11 +13,11 @@ requires-python = ">=3.9"
 dependencies = [
     "pytest>=7",
     "jax>=0.4.26",
-    "numpy>=1.24",
+    "numpy>=1.24"
 ]
 
 [project.optional-dependencies]
-plot = ["matplotlib>=3.6"]
+plot = ["matplotlib>=3.6", "graphviz>=0.20"]
 
 [project.entry-points.pytest11]
 pytest_jax_bench = "pytest_jax_bench.plugin"

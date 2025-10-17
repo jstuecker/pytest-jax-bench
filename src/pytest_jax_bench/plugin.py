@@ -41,6 +41,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Do not compare to previous runs of same commit (default: False)",
     )
     group.addoption(
+        "--ptjb-graphs-svg",
+        action="store_true",
+        default=False,
+        help="Save the compiled graph as SVG (if differing from previous)",
+    )
+    group.addoption(
         "--ptjb-plot-all",
         action="store_true",
         default=False,
@@ -98,7 +104,7 @@ def nodeid_to_path(test_nodeid: str, output_dir: str = ".") -> str:
     test_file = re.sub(r"[^A-Za-z0-9._-]+", ":", test_file)
     test_file = re.sub(r"\.py", "", test_file)
 
-    return os.path.join(output_dir, f"{test_file}::{test_name}.csv")
+    return os.path.join(output_dir, f"{test_file}::{test_name}")
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus : pytest.ExitCode, config: pytest.Config) -> None:
     if config.getoption("-v") >= 0:
@@ -286,19 +292,23 @@ class JaxBench:
             if path is not None:
                 raise ValueError("Path is set through request. Only pass path outside of pytest.")
             self.path = nodeid_to_path(self.node_id, output_dir=self.output_dir)
+            self.save_graph_svg = request.config.getoption("--ptjb-graphs-svg")
+
+            os.makedirs(self.output_dir, exist_ok=True)
         else: # Usage outside of pytest, some aspects will be missing
             self.forked = False
             self.tag = "base"
             self.node_id = None
             self.path = path
             self.output_dir = os.path.dirname(path) if path is not None else None
+            self.save_graph_svg = False
 
         self.jit_rounds = int(jit_rounds)
         self.jit_warmup = int(jit_warmup)
         self.eager_rounds = int(eager_rounds)
         self.eager_warmup = int(eager_warmup)
 
-        self.run_id, self.commit, self.commit_run = _get_run_info(self.path)
+        self.run_id, self.commit, self.commit_run = _get_run_info(self.path + ".csv" if self.path is not None else None)
 
         self.measurement = 0
 
@@ -403,6 +413,21 @@ class JaxBench:
             if self.jit_rounds > 0:
                 res.jit_mean_ms, res.jit_std_ms = self.profile_jit(fn_jit, *args, **kwargs)
 
+            if self.save_graph_svg:
+                from .utils import save_graph_svg
+                filename = f"{self.path}-{self.run_id}-{res.tag}.svg"
+
+                # find last svg with same tag and different run id
+                # We'll only write ours if it is different
+                last_svg = None
+                for run in range(self.run_id-1, -1, -1):
+                    fn_candidate = f"{self.path}-{run}-{res.tag}.svg"
+                    if os.path.exists(fn_candidate):
+                        last_svg = fn_candidate
+                        break
+
+                save_graph_svg(fn_compiled, filename, only_if_different=last_svg)
+
         if write and self.path is not None:
             self._write_row(res)
         elif write:
@@ -413,10 +438,9 @@ class JaxBench:
         return res
 
     def _write_row(self, res: BenchData) -> None:
-        os.makedirs(self.output_dir, exist_ok=True)
-
-        file_size = os.path.getsize(self.path) if os.path.exists(self.path) else 0
-        with open(self.path, "a", encoding="utf-8") as f:
+        file = self.path + ".csv"
+        file_size = os.path.getsize(file) if os.path.exists(file) else 0
+        with open(file, "a", encoding="utf-8") as f:
             if file_size == 0:
                 # Add a header
                 f.write(f"# pytest-jax-bench\n")

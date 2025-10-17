@@ -178,3 +178,9 @@ You can create plots in two different ways:
 
 Depending on the chosen options, this will either create one big summary plot or an individual plot for each test. For example, this is how one of my individual plots looked, after I had "accidentally" increased the size of my FFT, then panicked and made it too small and finally reverted it to the correct state:
 ![pytest-jax-bench plot example](assets/plot_example.png)
+
+### Plotting SVG Graphs
+You can autocreate SVG graphs if your jitted function by passing the option "--ptjb-graphs-svg". A new run's graph will only be saved if it differs from the last saved graph. (The difference detection is a bit challenging and may be slightly noisy.) Be aware that some graphs may get quite large!
+
+## ToDo:
+* Test on CPU
