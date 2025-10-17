@@ -297,27 +297,26 @@ class JaxBench:
 
         self.measurement = 0
 
-    def compile_time_ms(self, fn: Callable[..., Any], *args: Any, **kwargs: Any) -> float:
+    def compile_time_ms(self, fn_jit: Callable[..., Any], *args: Any, **kwargs: Any) -> float:
         """Return compilation time in milliseconds (excluding lowering)."""
-        jitted = jax.jit(fn)
         jax.clear_caches()
         t1 = time.perf_counter()
-        lowered = jitted.lower(*args, **kwargs)
+        lowered = fn_jit.lower(*args, **kwargs)
         compiled = lowered.compile()
         t2 = time.perf_counter()
         return (t2 - t1) * 1000.0, lowered, compiled
 
-    def profile_run(self, fn_comp: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[float, float]:
+    def profile_run(self, fn_jit: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[float, float]:
         """Return (mean_ms, std_ms, rounds, warmup)."""
         # warmup
         for _ in range(self.jit_warmup):
-            fn_comp(*args, **kwargs)
-        jax.block_until_ready(fn_comp(*args, **kwargs))
+            fn_jit(*args, **kwargs)
+        jax.block_until_ready(fn_jit(*args, **kwargs))
 
         times = []
         for _ in range(self.jit_rounds):
             t0 = time.perf_counter()
-            out = fn_comp(*args, **kwargs)
+            out = fn_jit(*args, **kwargs)
             jax.block_until_ready(out)
             t1 = time.perf_counter()
             times.append((t1 - t0) * 1000.0)
@@ -330,7 +329,7 @@ class JaxBench:
     def profile_eager(self, fn, *args, **kwargs):
         # Capture memory on first run
         if self.eager_warmup > 0:
-            fn(*args, **kwargs).block_until_ready()
+            jax.block_until_ready(fn(*args, **kwargs))
             eager_peak_mem = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
         else:
             eager_peak_mem = -1
@@ -395,7 +394,7 @@ class JaxBench:
                 res.jit_constants_bytes = 0
 
             if self.jit_rounds > 0:
-                res.jit_mean_ms, res.jit_std_ms = self.profile_run(fn_compiled, *args, **kwargs)
+                res.jit_mean_ms, res.jit_std_ms = self.profile_run(fn_jit, *args, **kwargs)
 
         if write:
             self._write_row(res=res, tag=tag)
