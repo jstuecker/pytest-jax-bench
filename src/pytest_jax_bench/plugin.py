@@ -168,7 +168,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             entry["Jit-Peak(MB)"] = compare_mem("jit_peak_bytes")
             entry["Jit-Const(MB)"] = compare_mem("jit_constants_bytes", min_mb=0.1)
             eager_str = "Eager-Peak(MB)" #if forked else _colored("Eager-Mem(MB) (invalid!)", "yellow")
-            entry[eager_str] = compare_mem("eager_peak_memory")
+            entry[eager_str] = compare_mem("eager_peak_bytes")
 
             entries.append(entry)
 
@@ -332,9 +332,9 @@ class JaxBench:
         # Capture memory on first run
         if self.eager_warmup > 0:
             jax.block_until_ready(fn(*args, **kwargs))
-            eager_peak_mem = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
+            eager_peak_bytes = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
         else:
-            eager_peak_mem = -1
+            eager_peak_bytes = -1
 
         for _ in range(self.eager_warmup - 1):
             fn(*args, **kwargs)
@@ -347,18 +347,18 @@ class JaxBench:
             jax.block_until_ready(out)
             t1 = time.perf_counter()
             times.append((t1 - t0) * 1000.0)
-            if eager_peak_mem < 0:
-                eager_peak_mem = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
+            if eager_peak_bytes < 0:
+                eager_peak_bytes = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
 
         if (not self.forked) or (self.measurement > 0):
             # Profile is invalid without forking, because peakr memory may be inherited from other
             # processes.
-            eager_peak_mem = -1
+            eager_peak_bytes = -1
 
         if self.eager_rounds >= 1:
-            return np.mean(times), np.std(times), eager_peak_mem
+            return np.mean(times), np.std(times), eager_peak_bytes
         else:
-            return np.nan, np.nan, eager_peak_mem
+            return np.nan, np.nan, eager_peak_bytes
 
     # ---------- high-level orchestration ----------
 
@@ -378,7 +378,7 @@ class JaxBench:
         
         # First do eager profiling, to get a good idea of the memory
         if fn is not None:
-            res.eager_mean_ms, res.eager_std_ms, res.eager_peak_memory = self.profile_eager(fn, *args, **kwargs)
+            res.eager_mean_ms, res.eager_std_ms, res.eager_peak_bytes = self.profile_eager(fn, *args, **kwargs)
 
         if fn_jit is not None:
             res.compile_ms, lowered, fn_compiled = self.compile_time_ms(fn_jit, *args, **kwargs)

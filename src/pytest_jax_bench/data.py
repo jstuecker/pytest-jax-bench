@@ -21,7 +21,7 @@ class BenchData:
     jit_peak_bytes: int = -1
     jit_constants_bytes: int = -1
     jit_temporary_bytes: int = -1
-    eager_peak_memory: int = -1
+    eager_peak_bytes: int = -1
 
     jit_rounds: int = 0
     jit_warmup: int = 0

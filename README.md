@@ -121,7 +121,7 @@ Each test creates a csv file in `--ptjb-output-dir` (defaults to `.benchmarks`) 
 # (10) jit_peak_bytes
 # (11) jit_constants_bytes
 # (12) jit_temporary_bytes
-# (13) eager_peak_memory
+# (13) eager_peak_bytes
 # (14) jit_rounds
 # (15) jit_warmup
 # (16) eager_rounds

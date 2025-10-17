@@ -115,7 +115,7 @@ def plot_memory_usage(data, title=None, xaxis="commit", ax=None):
 
     ax.set_title(title)
     ax.plot(x, data["jit_peak_bytes"]/1024.**2, label="jit (peak)", marker="o", alpha=0.8)
-    ax.plot(x[data["eager_peak_memory"]>=0], data["eager_peak_memory"][data["eager_peak_memory"]>=0]/1024.**2, label="eager (peak)", marker="o", alpha=0.8)
+    ax.plot(x[data["eager_peak_bytes"]>=0], data["eager_peak_bytes"][data["eager_peak_bytes"]>=0]/1024.**2, label="eager (peak)", marker="o", alpha=0.8)
 
     ax.plot(x, data["jit_temporary_bytes"]/1024.**2, label="jit (temp)", ls="dashed", marker="o", alpha=0.8)
     if np.any(data["jit_constants_bytes"] > 1e3):
@@ -123,7 +123,7 @@ def plot_memory_usage(data, title=None, xaxis="commit", ax=None):
 
     ax.set_ylabel("Memory (MB)")
     ax.legend()
-    if np.any((data["jit_peak_bytes"] > 0) | (data["eager_peak_memory"] > 0)):
+    if np.any((data["jit_peak_bytes"] > 0) | (data["eager_peak_bytes"] > 0)):
         ax.set_yscale("log")
 
     return ax
@@ -142,8 +142,8 @@ def plot_memory_usage_tagged(data, title=None, xaxis="commit", ax=None):
 
         ax.plot(xt, data_t["jit_peak_bytes"]/1024.**2, label=f"{label}", marker="o", alpha=0.8, color=color)
         # So far, eager memory doesn't work well with tags. Disable for now.
-        # ax.plot(xt, data_t["eager_peak_memory"]/1024.**2, marker="x", alpha=0.8, color=color, ls="dashed")
-        if np.any((data["jit_peak_bytes"] > 0) | (data["eager_peak_memory"] > 0)):
+        # ax.plot(xt, data_t["eager_peak_bytes"]/1024.**2, marker="x", alpha=0.8, color=color, ls="dashed")
+        if np.any((data["jit_peak_bytes"] > 0) | (data["eager_peak_bytes"] > 0)):
             ax.set_yscale("log")
 
     # ax.plot([], [], label="jit (peak)", color="k", marker="o")
