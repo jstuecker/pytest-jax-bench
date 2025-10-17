@@ -174,6 +174,8 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
 
         for report in terminalreporter.getreports("passed"):
             path = nodeid_to_path(report.nodeid, output_dir=output_dir)
+            if not os.path.exists(path):
+                continue
             data = load_bench_data(path, report.nodeid)
             run = data[-1]["run_id"]
             tags = np.unique(data["tag"][data["run_id"] == run])
@@ -306,7 +308,7 @@ class JaxBench:
         t2 = time.perf_counter()
         return (t2 - t1) * 1000.0, lowered, compiled
 
-    def profile_run(self, fn_jit: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[float, float]:
+    def profile_jit(self, fn_jit: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[float, float]:
         """Return (mean_ms, std_ms, rounds, warmup)."""
         # warmup
         for _ in range(self.jit_warmup):
@@ -394,7 +396,7 @@ class JaxBench:
                 res.jit_constants_bytes = 0
 
             if self.jit_rounds > 0:
-                res.jit_mean_ms, res.jit_std_ms = self.profile_run(fn_jit, *args, **kwargs)
+                res.jit_mean_ms, res.jit_std_ms = self.profile_jit(fn_jit, *args, **kwargs)
 
         if write:
             self._write_row(res=res, tag=tag)

@@ -4,6 +4,8 @@ import pytest
 import numpy as np
 from pytest_jax_bench import JaxBench
 
+def test_no_bench():
+    pass
 
 def rfft(x):
     return jnp.fft.irfftn(jnp.fft.rfftn(x*2.))
