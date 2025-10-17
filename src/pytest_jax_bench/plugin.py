@@ -107,10 +107,11 @@ def nodeid_to_path(test_nodeid: str, output_dir: str = ".") -> str:
     return os.path.join(output_dir, f"{test_file}::{test_name}")
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus : pytest.ExitCode, config: pytest.Config) -> None:
+    output_dir = config.getoption("--ptjb-output-dir")
+    
     if config.getoption("-v") >= 0:
         forked = config.getoption("--forked", False)
 
-        output_dir = config.getoption("--ptjb-output-dir")
         no_compare = config.getoption("--ptjb-no-compare", False)
 
         if not os.path.exists(output_dir) or len(os.listdir(output_dir)) == 0:
@@ -275,6 +276,12 @@ def _get_run_info(path):
 
     return run_id, current_commit, commit_run
 
+def _get_peak_bytes() -> int:
+    dev = jax.local_devices()[0]
+    if dev.platform == "gpu":
+        return dev.memory_stats()["peak_bytes_in_use"]
+    else:
+        return -1 # Forn now only GPU is supported for peak memory measurement
 
 # ---------------------------
 # The JaxBench core object
@@ -344,7 +351,7 @@ class JaxBench:
         # Capture memory on first run
         if self.eager_warmup > 0:
             jax.block_until_ready(fn(*args, **kwargs))
-            eager_peak_bytes = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
+            eager_peak_bytes = _get_peak_bytes()
         else:
             eager_peak_bytes = -1
 
@@ -360,7 +367,7 @@ class JaxBench:
             t1 = time.perf_counter()
             times.append((t1 - t0) * 1000.0)
             if eager_peak_bytes < 0:
-                eager_peak_bytes = jax.local_devices()[0].memory_stats()["peak_bytes_in_use"]
+                eager_peak_bytes = _get_peak_bytes()
 
         if (not self.forked) or (self.measurement > 0):
             # Profile is invalid without forking, because peak memory may be inherited from other
