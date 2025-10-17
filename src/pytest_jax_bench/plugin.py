@@ -59,9 +59,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="X-axis for plots - can be 'commit' or 'run' (default: run)",
     )
 
-def pytest_configure(config: pytest.Config) -> None:
-    outdir = config.getoption("--ptjb-output-dir")
-    os.makedirs(outdir, exist_ok=True)
 
 def select_commit_runs(data, commit, tag=None):
     commit_base = commit.rstrip("+")
@@ -110,9 +107,8 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
         output_dir = config.getoption("--ptjb-output-dir")
         no_compare = config.getoption("--ptjb-no-compare", False)
 
-        terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) results")
-        if not forked:
-            terminalreporter.write_line(_colored("Warning: Eager mode memory report is only valid when using --forked!", "yellow"))
+        if not os.path.exists(output_dir) or len(os.listdir(output_dir)) == 0:
+            return
 
         entries = []
         def add_entry(data, nodeid, tag=None):
@@ -183,8 +179,11 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
                 add_entry(data, report.nodeid, tag=tag)
 
         if len(entries) == 0:
-            terminalreporter.write_line("No benchmark data collected.")
             return
+        
+        terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) results")
+        if not forked:
+            terminalreporter.write_line(_colored("Warning: Eager mode memory report is only valid when using --forked!", "yellow"))
 
         allkeys = entries[0].keys()
         
@@ -408,6 +407,8 @@ class JaxBench:
     # ---------- IO ----------
 
     def _write_row(self, res: BenchData, tag: str = "default") -> None:
+        os.makedirs(self.output_dir, exist_ok=True)
+
         node_id = self.request.node.nodeid
         path = nodeid_to_path(node_id, output_dir=self.output_dir)
         res.run_id, res.commit, res.commit_run = self.run_id, self.commit, self.commit_run
