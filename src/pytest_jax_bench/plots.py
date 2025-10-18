@@ -66,11 +66,13 @@ def plot_run_performance(data, title=None, xaxis="commit", ax=None):
     x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
 
     ax.set_title(title)
-    ax.plot(x, data["jit_mean_ms"], marker="o", label="jitted", alpha=0.8)
-    ax.fill_between(x, data["jit_mean_ms"]-data["jit_std_ms"], data["jit_mean_ms"]+data["jit_std_ms"], alpha=0.3)
+    if np.any(data["jit_mean_ms"] > 0):
+        ax.plot(x, data["jit_mean_ms"], marker="o", label="jitted", alpha=0.8)
+        ax.fill_between(x, data["jit_mean_ms"]-data["jit_std_ms"], data["jit_mean_ms"]+data["jit_std_ms"], alpha=0.3)
 
-    ax.plot(x, data["eager_mean_ms"], marker="o", label="eager", alpha=0.8)
-    ax.fill_between(x, data["eager_mean_ms"]-data["eager_std_ms"], data["eager_mean_ms"]+data["eager_std_ms"], alpha=0.3)
+    if np.any(data["eager_mean_ms"] > 0):
+        ax.plot(x, data["eager_mean_ms"], marker="o", label="eager", alpha=0.8)
+        ax.fill_between(x, data["eager_mean_ms"]-data["eager_std_ms"], data["eager_mean_ms"]+data["eager_std_ms"], alpha=0.3)
 
     ax.plot(x, data["compile_ms"], marker="o", label="compile", alpha=0.8)
     
@@ -99,8 +101,11 @@ def plot_run_performance_tagged(data, title=None, xaxis="commit", ax=None):
         
         if np.any((data_t["jit_mean_ms"] > 0) | (data_t["eager_mean_ms"] > 0)):
             ax.set_yscale("log")
-    ax.plot([], [], label="jitted", color="k", marker="o", alpha=0.8)
-    ax.plot([], [], label="eager", color="k", marker="o", alpha=0.2, ls="dashed")
+    
+    if np.any(data["jit_mean_ms"] > 0):
+        ax.plot([], [], label="jitted", color="k", marker="o", alpha=0.8)
+    if np.any(data["eager_mean_ms"] > 0):
+        ax.plot([], [], label="eager", color="k", marker="o", alpha=0.2, ls="dashed")
 
     ax.set_ylabel("Time (ms)")
     ax.legend()
