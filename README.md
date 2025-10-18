@@ -183,7 +183,7 @@ In the example at hand, you can see that I had improved the function that is cal
 ### Plotting results
 You can create plots in two different ways:
 
-* By directly passing `--ptjb-plot-all` or `--ptjb-plot-each` to the `pytest` command
+* By directly passing `--ptjb-plot` to the `pytest` command
 * By using the `ptjb-plot` command line tool (supporting the same + some additional options -- see `ptjb-plot --help`)
 
 Depending on the chosen options, this will either create one big summary plot or an individual plot for each test. For example, this is how one of my individual plots looked, after I had "accidentally" increased the size of my FFT, then panicked and made it too small and finally reverted it to the correct state:

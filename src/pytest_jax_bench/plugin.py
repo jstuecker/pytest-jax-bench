@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 from .data import BenchData, load_bench_data
 from .utils import folded_constants_bytes
+from dataclasses import dataclass
 
 import pytest
 import subprocess
@@ -47,22 +48,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Save the compiled graph as SVG (if differing from previous)",
     )
     group.addoption(
-        "--ptjb-plot-all",
-        action="store_true",
-        default=False,
-        help="Generate a joint summary plot after the test run (default: False)",
-    )
-    group.addoption(
-        "--ptjb-plot-each",
+        "--ptjb-plot",
         action="store_true",
         default=False,
         help="Generate plots for each benchmark after the test run (default: False)",
-    )
-    group.addoption(
-        "--ptjb-plot-pars-together",
-        action="store_true",
-        default=False,
-        help="Whether to plot tests marked with pytest.mark.parametrize together (default: False)",
     )
     group.addoption(
         "--ptjb-plot-xaxis",
@@ -70,7 +59,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default="run",
         help="X-axis for plots - can be 'commit' or 'run' (default: run)",
     )
-
 
 def select_commit_runs(data, commit, tag=None):
     commit_base = commit.rstrip("+")
@@ -216,7 +204,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
         for line in lines:
             terminalreporter.write_line(line)
 
-    if config.getoption("--ptjb-plot-all") or config.getoption("--ptjb-plot-each"):
+    if config.getoption("--ptjb-plot"):
         nodeids = [r.nodeid for r in terminalreporter.getreports("passed")]
         paths = [nodeid_to_path(nid, output_dir=output_dir) for nid in nodeids]
 
@@ -232,22 +220,16 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
 
         xaxis = config.getoption("--ptjb-plot-xaxis")
         if xaxis not in ("commit", "run"):
-            terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) plotting skipped")
             terminalreporter.write_line(f"Unknown xaxis {xaxis}, must be 'commit', 'run' or 'tag'")
             return
         
-        group_par = config.getoption("--ptjb-plot-pars-together")
-
-        if config.getoption("--ptjb-plot-all"):
-            plots.plot_all_benchmarks_together(
-                paths, bench_dir=output_dir, xaxis=xaxis, save="png", group_par=group_par
-            )
-            terminalreporter.write_line(f"Summary plot saved to {os.path.join(output_dir, 'all_benchmarks.png')}")
-
-        if config.getoption("--ptjb-plot-each"):
-            plots.plot_all_benchmarks_individually(
-                paths=paths, bench_dir=output_dir, xaxis=xaxis, save="png", group_par=group_par
-            )
+        if config.getoption("-v") >= 1:
+            terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) plots")
+        plots.plot_all_benchmarks(
+            paths=paths, bench_dir=output_dir, xaxis=xaxis, save="png",
+            trep= terminalreporter if config.getoption("-v") >= 1 else None
+        )
+        if config.getoption("-v") == 0:
             terminalreporter.write_line(f"All PTJB benchmarks plots saved to {os.path.join(output_dir)}")
 
 # ---------------------------

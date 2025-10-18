@@ -61,8 +61,6 @@ def prepare_xaxis(data, xaxis="commit", ax=None):
     return x, ax
 
 def plot_run_performance(data, title=None, xaxis="commit", ax=None):
-    if len(np.unique(data["tag"])) > 1:
-        return plot_run_performance_tagged(data, title=title, xaxis=xaxis, ax=ax)
 
     x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
 
@@ -181,7 +179,7 @@ def get_data_of_parameterized_group(files, path_group_base):
     data = np.concatenate(data)
     return data
 
-def iterate_data(paths=None, bench_dir=".benchmarks", group_par=False):
+def iterate_data(paths=None, bench_dir=".benchmarks"):
     files = find_files(bench_dir)
 
     if paths is None:
@@ -192,58 +190,37 @@ def iterate_data(paths=None, bench_dir=".benchmarks", group_par=False):
         if not os.path.isfile(path + ".csv"):
             continue
 
-        if group_par and re.search(r"\[.*\]$", path) is not None:
-            # for parameterized groups we may want to summarize several files
-            path = re.sub(r"\[.*\]$", "", path)
-            if path in groups_done:
+        data = load_bench_data(path + ".csv")
+        yield data, path
+
+        if re.search(r"\[.*\]$", path) is not None:
+            # for parameterized groups we return a second time together
+            path_gr = re.sub(r"\[.*\]$", "", path)
+            if path_gr in groups_done:
                 continue
 
-            data = get_data_of_parameterized_group(files, path)
-            groups_done.append(path)
-        else:
-            data = load_bench_data(path + ".csv")
+            data_gr = get_data_of_parameterized_group(files, path_gr)
+            groups_done.append(path_gr)
+
+            yield data_gr, path_gr
+
+def plot_all_benchmarks(paths=None, bench_dir=".benchmarks", xaxis="commit", save="png", trep=None):
+    assert save in {"png", "pdf"}
+
+    for data, path in iterate_data(paths, bench_dir=bench_dir):
         title = path.split("/")[-1].split(":")[-1]
-
-        yield data, title, path
-
-def plot_all_benchmarks_together(paths=None, bench_dir=".benchmarks", xaxis="commit", save="png", group_par=False):
-    n = len(paths)
-    fig, axs = plt.subplots(n, 2, figsize=(10, 4*n))
-
-    for i, (data, title, path) in enumerate(iterate_data(paths, bench_dir=bench_dir, group_par=group_par)):
-        plot_run_performance(data, title=title, xaxis=xaxis, ax=axs[i,0])
-        plot_memory_usage(data, title=title, xaxis=xaxis, ax=axs[i,1])
-
-    # delete unused axes if any
-    if i+1 < len(axs):
-        for j in range(i+1, len(axs)):
-            fig.delaxes(axs[j,0])
-            fig.delaxes(axs[j,1])
-
-    fig.tight_layout()
-
-    if save:
-        assert save in {"png", "pdf"}
-        fig.savefig(os.path.join(bench_dir, "all_benchmarks.%s" % save), bbox_inches='tight')
-        plt.close(fig)
-    else:
-        plt.show()
-
-    return fig, axs
-
-
-def plot_all_benchmarks_individually(paths=None, bench_dir=".benchmarks", xaxis="commit", save="png", group_par=False):
-    figs = []
-    for data, title, path in iterate_data(paths, bench_dir=bench_dir, group_par=group_par):
         fig, axs = plt.subplots(1, 2, figsize=(10, 4))
-        plot_run_performance(data, title=title, xaxis=xaxis, ax=axs[0])
-        plot_memory_usage(data, title=title, xaxis=xaxis, ax=axs[1])
-        fig.tight_layout()
-        figs.append((fig, axs))
-        
-        if save:
-            assert save in {"png", "pdf"}
-            fig.savefig(path + "." + save)
-            plt.close(fig)
+        if len(np.unique(data["tag"])) > 1:
+            plot_run_performance_tagged(data, title=title, xaxis=xaxis, ax=axs[0])
+            plot_memory_usage_tagged(data, title=title, xaxis=xaxis, ax=axs[1])
         else:
-            plt.show()
+            plot_run_performance(data, title=title, xaxis=xaxis, ax=axs[0])
+            plot_memory_usage(data, title=title, xaxis=xaxis, ax=axs[1])
+        fig.tight_layout()
+        fig.savefig(path + "." + save)
+        plt.close(fig)
+
+        if trep == "print":
+            print(f"Generated plot {path}.{save}")
+        elif trep is not None:
+            trep.write_line(f"Generated plot {path}.{save}")
