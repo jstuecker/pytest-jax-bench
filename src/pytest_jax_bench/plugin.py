@@ -59,6 +59,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Generate plots for each benchmark after the test run (default: False)",
     )
     group.addoption(
+        "--ptjb-plot-pars-together",
+        action="store_true",
+        default=False,
+        help="Whether to plot tests marked with pytest.mark.parametrize together (default: False)",
+    )
+    group.addoption(
         "--ptjb-plot-xaxis",
         action="store",
         default="run",
@@ -211,6 +217,11 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             terminalreporter.write_line(line)
 
     if config.getoption("--ptjb-plot-all") or config.getoption("--ptjb-plot-each"):
+        nodeids = [r.nodeid for r in terminalreporter.getreports("passed")]
+        paths = [nodeid_to_path(nid, output_dir=output_dir) for nid in nodeids]
+
+        report : pytest.TestReport = terminalreporter.getreports("passed")[0]
+
         try:
             from . import plots
         except ImportError as e:
@@ -224,13 +235,19 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) plotting skipped")
             terminalreporter.write_line(f"Unknown xaxis {xaxis}, must be 'commit', 'run' or 'tag'")
             return
+        
+        group_par = config.getoption("--ptjb-plot-pars-together")
 
         if config.getoption("--ptjb-plot-all"):
-            plots.plot_all_benchmarks_together(bench_dir=output_dir, xaxis=xaxis, save="png")
+            plots.plot_all_benchmarks_together(
+                paths, bench_dir=output_dir, xaxis=xaxis, save="png", group_par=group_par
+            )
             terminalreporter.write_line(f"Summary plot saved to {os.path.join(output_dir, 'all_benchmarks.png')}")
 
         if config.getoption("--ptjb-plot-each"):
-            plots.plot_all_benchmarks_individually(bench_dir=output_dir, xaxis=xaxis, save="png")
+            plots.plot_all_benchmarks_individually(
+                paths=paths, bench_dir=output_dir, xaxis=xaxis, save="png", group_par=group_par
+            )
             terminalreporter.write_line(f"All PTJB benchmarks plots saved to {os.path.join(output_dir)}")
 
 # ---------------------------

@@ -6,6 +6,7 @@ except ImportError:
 import numpy as np
 import os
 from .data import load_bench_data
+import re
 
 def get_commit_info(arr):
     # First get each commit once. Note this will screw up the order, we'll fix it later
@@ -166,36 +167,74 @@ def find_files(bench_dir="../.benchmarks"):
     files = [f for f in files if f.endswith(".csv")]
     return [os.path.join(bench_dir, f) for f in files]
 
-def plot_all_benchmarks_together(bench_dir="../.benchmarks", xaxis="commit", save="png"):
+def get_data_of_parameterized_group(files, path_group_base):
+    files_group = tuple(filter(lambda f: path_group_base in f, files))
+    data = []
+    for file in files_group:
+        pars = re.search(r"\[(.*)\]", file.replace(".csv","")).group(0)
+        d = load_bench_data(file)
+        if np.all(d["tag"] == "base"):
+            d["tag"] = pars
+        else:
+            d["tag"] += pars
+        data.append(d)
+    data = np.concatenate(data)
+    return data
+
+def iterate_data(paths=None, bench_dir=".benchmarks", group_par=False):
     files = find_files(bench_dir)
 
-    n = len(files)
+    if paths is None:
+        paths = [file.replace(".csv", "") for file in files]
+    
+    groups_done = []
+    for path in paths:
+        if not os.path.isfile(path + ".csv"):
+            continue
+
+        if group_par and re.search(r"\[.*\]$", path) is not None:
+            # for parameterized groups we may want to summarize several files
+            path = re.sub(r"\[.*\]$", "", path)
+            if path in groups_done:
+                continue
+
+            data = get_data_of_parameterized_group(files, path)
+            groups_done.append(path)
+        else:
+            data = load_bench_data(path + ".csv")
+        title = path.split("/")[-1].split(":")[-1]
+
+        yield data, title, path
+
+def plot_all_benchmarks_together(paths=None, bench_dir=".benchmarks", xaxis="commit", save="png", group_par=False):
+    n = len(paths)
     fig, axs = plt.subplots(n, 2, figsize=(10, 4*n))
 
-    for i, file in enumerate(files):
-        data = load_bench_data(file)
-        title = os.path.basename(file).replace(".csv", "")
+    for i, (data, title, path) in enumerate(iterate_data(paths, bench_dir=bench_dir, group_par=group_par)):
         plot_run_performance(data, title=title, xaxis=xaxis, ax=axs[i,0])
         plot_memory_usage(data, title=title, xaxis=xaxis, ax=axs[i,1])
+
+    # delete unused axes if any
+    if i+1 < len(axs):
+        for j in range(i+1, len(axs)):
+            fig.delaxes(axs[j,0])
+            fig.delaxes(axs[j,1])
 
     fig.tight_layout()
 
     if save:
         assert save in {"png", "pdf"}
-        fig.savefig(os.path.join(bench_dir, "all_benchmarks.%s" % save))
+        fig.savefig(os.path.join(bench_dir, "all_benchmarks.%s" % save), bbox_inches='tight')
         plt.close(fig)
     else:
         plt.show()
 
     return fig, axs
 
-def plot_all_benchmarks_individually(bench_dir="../.benchmarks", xaxis="commit", save="png"):
-    files = find_files(bench_dir)
-    
+
+def plot_all_benchmarks_individually(paths=None, bench_dir=".benchmarks", xaxis="commit", save="png", group_par=False):
     figs = []
-    for file in files:
-        data = load_bench_data(file)
-        title = os.path.basename(file).replace(".csv", "")
+    for data, title, path in iterate_data(paths, bench_dir=bench_dir, group_par=group_par):
         fig, axs = plt.subplots(1, 2, figsize=(10, 4))
         plot_run_performance(data, title=title, xaxis=xaxis, ax=axs[0])
         plot_memory_usage(data, title=title, xaxis=xaxis, ax=axs[1])
@@ -204,7 +243,7 @@ def plot_all_benchmarks_individually(bench_dir="../.benchmarks", xaxis="commit",
         
         if save:
             assert save in {"png", "pdf"}
-            fig.savefig(os.path.join(bench_dir, title + "." + save))
+            fig.savefig(path + "." + save)
             plt.close(fig)
         else:
             plt.show()
