@@ -327,9 +327,10 @@ class JaxBench:
 
     def profile_jit(self, fn_jit: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[float, float]:
         """Return (mean_ms, std_ms, rounds, warmup)."""
+        out = None
         for _ in range(self.jit_warmup):
-            fn_jit(*args, **kwargs)
-        jax.block_until_ready(fn_jit(*args, **kwargs))
+            out = fn_jit(*args, **kwargs)
+        jax.block_until_ready(out)
 
         times = []
         for _ in range(self.jit_rounds):
@@ -340,21 +341,22 @@ class JaxBench:
             times.append((t1 - t0) * 1000.0)
 
         if self.jit_rounds >= 1:
-            return float(np.round(np.mean(times), 3)), float(np.round(np.std(times), 3))
+            return out, float(np.round(np.mean(times), 3)), float(np.round(np.std(times), 3))
         else:
-            return float('nan'), float('nan')
+            return out, float('nan'), float('nan')
     
     def profile_eager(self, fn, *args, **kwargs):
+        out = None
         # Capture memory on first run
         if self.eager_warmup > 0:
-            jax.block_until_ready(fn(*args, **kwargs))
+            out = jax.block_until_ready(fn(*args, **kwargs))
             eager_peak_bytes = _get_peak_bytes()
         else:
             eager_peak_bytes = -1
 
         for _ in range(self.eager_warmup - 1):
-            fn(*args, **kwargs)
-        jax.block_until_ready(fn(*args, **kwargs))
+            out = fn(*args, **kwargs)
+        jax.block_until_ready(out)
 
         times = []
         for _ in range(self.eager_rounds):
@@ -372,9 +374,9 @@ class JaxBench:
             eager_peak_bytes = -1
 
         if self.eager_rounds >= 1:
-            return float(np.round(np.mean(times), 3)), float(np.round(np.std(times), 3)), eager_peak_bytes
+            return out, float(np.round(np.mean(times), 3)), float(np.round(np.std(times), 3)), eager_peak_bytes
         else:
-            return float("nan"), float("nan"), eager_peak_bytes
+            return out, float("nan"), float("nan"), eager_peak_bytes
 
     # ---------- high-level orchestration ----------
 
@@ -388,7 +390,7 @@ class JaxBench:
         **kwargs: Any,
     ) -> BenchData:
         """Run selected measurements and write one numeric row per call."""
-
+        out = None
         res = BenchData(jit_rounds=self.jit_rounds, jit_warmup=self.jit_warmup,
                         eager_rounds=self.eager_rounds, eager_warmup=self.eager_warmup)
         
@@ -396,10 +398,10 @@ class JaxBench:
         res.tag = self.tag if tag is None else tag
         
         # First do eager profiling, to get a good idea of the memory
-        if fn is not None:
-            res.eager_mean_ms, res.eager_std_ms, res.eager_peak_bytes = self.profile_eager(fn, *args, **kwargs)
+        if fn is not None and (self.eager_rounds > 0 or self.eager_warmup > 0):
+            out, res.eager_mean_ms, res.eager_std_ms, res.eager_peak_bytes = self.profile_eager(fn, *args, **kwargs)
 
-        if fn_jit is not None:
+        if fn_jit is not None and (self.jit_rounds > 0 or self.jit_warmup > 0):
             res.compile_ms, lowered, fn_compiled = self.compile_time_ms(fn_jit, *args, **kwargs)
             graph_mem = fn_compiled.memory_analysis()
 
@@ -415,7 +417,7 @@ class JaxBench:
                 res.jit_constants_bytes = 0
 
             if self.jit_rounds > 0:
-                res.jit_mean_ms, res.jit_std_ms = self.profile_jit(fn_jit, *args, **kwargs)
+                out, res.jit_mean_ms, res.jit_std_ms = self.profile_jit(fn_jit, *args, **kwargs)
 
             if self.save_graph_svg:
                 from .utils import save_graph_svg
@@ -439,7 +441,7 @@ class JaxBench:
         
         self.measurement += 1
 
-        return res
+        return res, out
 
     def _write_row(self, res: BenchData) -> None:
         file = self.path + ".csv"

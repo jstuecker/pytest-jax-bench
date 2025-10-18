@@ -92,6 +92,16 @@ So far, this doesn't support eager memory at all (even when using `--forked`)
 
 In this case tests with several tags will be saved to the same file and they will be plotted together by default. Note that the plots skip some less relevant aspects in this case to keep it simple.
 
+### Usage outside of pytest
+You can also use the benchmark class independently of pytest:
+```python
+from pytest_jax_bench import JaxBench
+
+jb = JaxBench(jit_rounds=10, jit_warmup=2, eager_rounds=5, eager_warmup=1)
+res, out = jb.measure(fn=rfft, fn_jit=jax.jit(rfft), x=x, write=False)
+print(res)
+```
+
 ### Examples:
 For more examples check the [examples](tests/test_examples.py).
 
