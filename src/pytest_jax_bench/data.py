@@ -42,11 +42,11 @@ class BenchData:
         for i, field in enumerate(self.__dataclass_fields__.values()):
             value = getattr(self, field.name)
             if isinstance(value, (int, np.integer)):
-                fmt = f"{value:12d}"
+                fmt = f" {value:11d}"
             elif isinstance(value, (float, np.floating)):
-                fmt = f"{value:12.2f}"
+                fmt = f" {value:11.2f}"
             elif isinstance(value, (str, np.str_)):
-                fmt = f"{value:>12s}"
+                fmt = f" {value:>11s}"
             else:
                 raise TypeError(f"Unsupported type {type(value)} for field {field.name}")
             
