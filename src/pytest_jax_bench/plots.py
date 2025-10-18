@@ -55,14 +55,22 @@ def prepare_xaxis(data, xaxis="commit", ax=None):
         ax.set_xlabel("Commit")
         ax.set_xticks(np.arange(len(commits)), commits, rotation=90 if len(commits) > 10 else 0)
         ax.grid("on")
+    elif xaxis == "tag":
+        uq_tag = np.unique(data["tag"])
+        last_of_tag = np.array([np.max(np.where(data["tag"] == t)[0]) for t in uq_tag])
+        data = data[last_of_tag]
+        x = np.arange(len(uq_tag))
+        # remove [] brackets for parameterized tests_
+        lean_tag = [re.sub(r"[\[\]]", "", t) for t in uq_tag]
+        tags_are_long = np.any([len(t) > 100/len(lean_tag) for t in lean_tag])
+        ax.set_xticks(np.arange(len(lean_tag)), lean_tag, rotation=90 if tags_are_long else 0)
     else:
         raise ValueError(f"Unknown xaxis {xaxis}, must be 'commit' or 'run'")
     
-    return x, ax
+    return x, ax, data
 
 def plot_run_performance(data, title=None, xaxis="commit", ax=None):
-
-    x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
+    x, ax, data = prepare_xaxis(data, xaxis=xaxis, ax=ax)
 
     ax.set_title(title)
     if np.any(data["jit_mean_ms"] > 0):
@@ -83,7 +91,7 @@ def plot_run_performance(data, title=None, xaxis="commit", ax=None):
     return ax
 
 def plot_run_performance_tagged(data, title=None, xaxis="commit", ax=None):
-    x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
+    x, ax, data = prepare_xaxis(data, xaxis=xaxis, ax=ax)
     ax.set_title(title)
 
     tags = np.unique(data["tag"])
@@ -112,10 +120,7 @@ def plot_run_performance_tagged(data, title=None, xaxis="commit", ax=None):
     return ax
 
 def plot_memory_usage(data, title=None, xaxis="commit", ax=None):
-    if len(np.unique(data["tag"])) > 1:
-        return plot_memory_usage_tagged(data, title=title, xaxis=xaxis, ax=ax)
-
-    x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
+    x, ax, data = prepare_xaxis(data, xaxis=xaxis, ax=ax)
 
     ax.set_title(title)
     ax.plot(x, data["jit_peak_bytes"]/1024.**2, label="jit (peak)", marker="o", alpha=0.8)
@@ -133,7 +138,7 @@ def plot_memory_usage(data, title=None, xaxis="commit", ax=None):
     return ax
 
 def plot_memory_usage_tagged(data, title=None, xaxis="commit", ax=None):
-    x, ax = prepare_xaxis(data, xaxis=xaxis, ax=ax)
+    x, ax, data = prepare_xaxis(data, xaxis=xaxis, ax=ax)
     ax.set_title(title)
 
     tags = np.unique(data["tag"])
@@ -207,10 +212,10 @@ def iterate_data(paths=None, bench_dir=".benchmarks"):
 def plot_all_benchmarks(paths=None, bench_dir=".benchmarks", xaxis="commit", save="png", trep=None):
     assert save in {"png", "pdf"}
 
-    for data, path in iterate_data(paths, bench_dir=bench_dir):
+    def save_plot(data, path, xaxis=xaxis, tagged=False):
         title = path.split("/")[-1].split(":")[-1]
         fig, axs = plt.subplots(1, 2, figsize=(10, 4))
-        if len(np.unique(data["tag"])) > 1:
+        if tagged:
             plot_run_performance_tagged(data, title=title, xaxis=xaxis, ax=axs[0])
             plot_memory_usage_tagged(data, title=title, xaxis=xaxis, ax=axs[1])
         else:
@@ -224,3 +229,10 @@ def plot_all_benchmarks(paths=None, bench_dir=".benchmarks", xaxis="commit", sav
             print(f"Generated plot {path}.{save}")
         elif trep is not None:
             trep.write_line(f"Generated plot {path}.{save}")
+
+    for data, path in iterate_data(paths, bench_dir=bench_dir):
+        if len(np.unique(data["tag"])) > 1:
+            save_plot(data, path=path, xaxis=xaxis, tagged=True)
+            save_plot(data, path=path + "_tag", xaxis="tag", tagged=False)
+        else:
+            save_plot(data, path=path, xaxis=xaxis, tagged=False)

@@ -62,6 +62,13 @@ def test_parameters(request, n):
     jb = JaxBench(request, jit_rounds=10, jit_warmup=2, eager_rounds=5, eager_warmup=1)
     jb.measure(fn=rfft, fn_jit=jax.jit(rfft), x=x)
 
+@pytest.mark.parametrize("n", [100, 140, 180, 220, 260])
+def test_many_parameters(request, n):
+    x = jnp.ones((n, n, n), dtype=jnp.float32)
+
+    jb = JaxBench(request, jit_rounds=10, jit_warmup=2, eager_rounds=5, eager_warmup=1)
+    jb.measure(fn=rfft, fn_jit=jax.jit(rfft), x=x)
+
 @pytest.mark.parametrize("n1, n2, n3", [(128,128,128), (256,256,256)])
 def test_three_parameters(request, n1, n2, n3):
     x = jnp.ones((n1, n2, n3), dtype=jnp.float32)
