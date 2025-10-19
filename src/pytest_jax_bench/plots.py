@@ -52,7 +52,7 @@ def prepare_xaxis(data, xaxis="commit", ax=None):
         ax2.set_xticklabels(commits, fontsize=8, rotation=90)
     elif xaxis == "commit":
         commits, first_occ, com_runs_tot, com_of_run = get_commit_info(data)
-        
+
         x = com_of_run
 
         ax.set_xlabel("Commit")
@@ -217,3 +217,24 @@ def plot_parametrized_benchmark(path, xaxis="commit", save="png", trep=None):
             create_and_save(data_with_par[last_idx], path=path + f"/{k}", xaxis=k, tagged=True, save=save, trep=trep)
         else:
             create_and_save(data_with_par[last_idx], path=path + f"/{k}", xaxis=k, tagged=False, save=save, trep=trep)
+
+def plot_all_benchmarks(bench_dir="../.benchmarks", xaxis="commit", save="png", trep=None):
+    files = os.listdir(bench_dir)
+    files_csv = [f for f in files if f.endswith(".csv")]
+
+    dirs = [f for f in files if os.path.isdir(os.path.join(bench_dir, f))]
+    dirs_csv = []
+
+    for d in dirs:
+        sub_files = os.listdir(os.path.join(bench_dir, d))
+        sub_csv = [f for f in sub_files if f.endswith(".csv")]
+        files_csv.extend( [os.path.join(d, f) for f in sub_csv] )
+        if len(sub_csv) > 0:
+            dirs_csv.append(d)
+
+    for f in files_csv:
+        path = os.path.join(bench_dir, f.strip(".csv"))
+        plot_normal_benchmark(path, xaxis=xaxis, save=save, trep=trep)
+    for d in dirs_csv:
+        path = os.path.join(bench_dir, d)
+        plot_parametrized_benchmark(path, xaxis=xaxis, save=save, trep=trep)
