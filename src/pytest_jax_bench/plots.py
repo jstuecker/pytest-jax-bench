@@ -36,12 +36,12 @@ def get_commit_info(arr):
     return commits, first_occ, com_runs_tot, com_of_run
 
 def prepare_xaxis(data, xaxis="commit", ax=None):
-    commits, first_occ, com_runs_tot, com_of_run = get_commit_info(data)
-
     if ax is None:
         ax = plt.gca()
 
     if xaxis == "run":
+        commits, first_occ, com_runs_tot, com_of_run = get_commit_info(data)
+
         x = data["run_id"]
 
         ax.set_xlabel("Run")
@@ -51,6 +51,8 @@ def prepare_xaxis(data, xaxis="commit", ax=None):
         ax2.set_xticks(first_occ)
         ax2.set_xticklabels(commits, fontsize=8, rotation=90)
     elif xaxis == "commit":
+        commits, first_occ, com_runs_tot, com_of_run = get_commit_info(data)
+        
         x = com_of_run
 
         ax.set_xlabel("Commit")
@@ -75,7 +77,7 @@ def prepare_xaxis(data, xaxis="commit", ax=None):
     
     return x, ax, data
 
-def plot_run_performance(data, title=None, xaxis="commit", ax=None):
+def plot_performance(data, title=None, xaxis="commit", ax=None):
     x, ax, data = prepare_xaxis(data, xaxis=xaxis, ax=ax)
 
     ax.set_title(title)
@@ -96,7 +98,7 @@ def plot_run_performance(data, title=None, xaxis="commit", ax=None):
 
     return ax
 
-def plot_run_performance_tagged(data, title=None, xaxis="commit", ax=None):
+def plot_performance_tagged(data, title=None, xaxis="commit", ax=None):
     x, ax, data = prepare_xaxis(data, xaxis=xaxis, ax=ax)
     ax.set_title(title)
 
@@ -167,59 +169,19 @@ def plot_memory_usage_tagged(data, title=None, xaxis="commit", ax=None):
     
     return ax
 
-
 def find_files(bench_dir="../.benchmarks"):
     files = os.listdir(bench_dir)
     files = [f for f in files if f.endswith(".csv")]
     return [os.path.join(bench_dir, f) for f in files]
 
-def get_data_of_parameterized_group(files, path_group_base):
-    files_group = tuple(filter(lambda f: path_group_base in f, files))
-    data = []
-    for file in files_group:
-        pars = re.search(r"\[(.*)\]", file.replace(".csv","")).group(0)
-        d = load_bench_data(file)
-        if np.all(d["tag"] == "base"):
-            d["tag"] = pars
-        else:
-            d["tag"] += pars
-        data.append(d)
-    data = np.concatenate(data)
-    return data
-
-def iterate_data(paths=None, bench_dir=".benchmarks"):
-    files = find_files(bench_dir)
-
-    if paths is None:
-        paths = [file.replace(".csv", "") for file in files]
-    
-    groups_done = []
-    for path in paths:
-        if not os.path.isfile(path + ".csv"):
-            continue
-
-        data = load_bench_data(path + ".csv")
-        yield data, path
-
-        if re.search(r"\[.*\]$", path) is not None:
-            # for parameterized groups we return a second time together
-            path_gr = re.sub(r"\[.*\]$", "", path)
-            if path_gr in groups_done:
-                continue
-
-            data_gr = get_data_of_parameterized_group(files, path_gr)
-            groups_done.append(path_gr)
-
-            yield data_gr, path_gr
-
-def save_plot(data, path, xaxis="run", tagged=False, save="png", trep=None):
+def create_and_save(data, path, xaxis="run", tagged=False, save="png", trep=None):
     title = path.split("--")[-1] #.split(":")[-1]
     fig, axs = plt.subplots(1, 2, figsize=(10, 4))
     if tagged:
-        plot_run_performance_tagged(data, title=title, xaxis=xaxis, ax=axs[0])
+        plot_performance_tagged(data, title=title, xaxis=xaxis, ax=axs[0])
         plot_memory_usage_tagged(data, title=title, xaxis=xaxis, ax=axs[1])
     else:
-        plot_run_performance(data, title=title, xaxis=xaxis, ax=axs[0])
+        plot_performance(data, title=title, xaxis=xaxis, ax=axs[0])
         plot_memory_usage(data, title=title, xaxis=xaxis, ax=axs[1])
     fig.tight_layout()
     fig.savefig(path + "." + save)
@@ -235,10 +197,10 @@ def plot_normal_benchmark(path, xaxis="run", save="png", trep=None):
     if data is None: return
 
     if len(np.unique(data["tag"])) > 1:
-        save_plot(data, path=path, xaxis=xaxis, tagged=True, save=save, trep=trep)
-        save_plot(data, path=path + "_xtag", xaxis="tag", tagged=False, save=save, trep=trep)
+        create_and_save(data, path=path, xaxis=xaxis, tagged=True, save=save, trep=trep)
+        create_and_save(data, path=path + "_xtag", xaxis="tag", tagged=False, save=save, trep=trep)
     else:
-        save_plot(data, path=path, xaxis=xaxis, tagged=False, save=save, trep=trep)
+        create_and_save(data, path=path, xaxis=xaxis, tagged=False, save=save, trep=trep)
 
 def plot_parametrized_benchmark(path, xaxis="commit", save="png", trep=None):
     data, pars = load_bench_data(path, interprete_parameters=True)
@@ -252,6 +214,6 @@ def plot_parametrized_benchmark(path, xaxis="commit", save="png", trep=None):
         last_idx = len(data_with_par) - 1 - np.unique(pairs[::-1], return_index=True)[1]
 
         if len(np.unique(data["tag"])) > 1:
-            save_plot(data_with_par[last_idx], path=path + f"/{k}", xaxis=k, tagged=True, save=save, trep=trep)
+            create_and_save(data_with_par[last_idx], path=path + f"/{k}", xaxis=k, tagged=True, save=save, trep=trep)
         else:
-            save_plot(data_with_par[last_idx], path=path + f"/{k}", xaxis=k, tagged=False, save=save, trep=trep)
+            create_and_save(data_with_par[last_idx], path=path + f"/{k}", xaxis=k, tagged=False, save=save, trep=trep)
