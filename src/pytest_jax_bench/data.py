@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 import numpy as np
+from numpy.lib import recfunctions as rfn
+import ast
 
 # ---------------------------
 # Core measurement container
@@ -11,6 +13,7 @@ class BenchData:
     commit: str = "unknown"
     commit_run: int = 0
     tag: str = "base"
+    parameters: str = ""
     
     compile_ms: float = float('nan')
     jit_mean_ms: float = float('nan')
@@ -64,11 +67,52 @@ class BenchData:
                 fields.append((f.name, np.dtype(f.type).str))
         return np.dtype(fields)
 
-def load_bench_data(file: str, remove_dirt_mark=True) -> np.ndarray:
-    """Load benchmark data from a CSV file into a structured numpy array."""
-    data = np.genfromtxt(file, dtype=BenchData.data_type(), comments="#", ndmin=1)
+def encode_pardict(par_dict: dict) -> str:
+    """Encode a parameter dictionary as a string for storage in BenchData."""
+    if par_dict is None or len(par_dict) == 0:
+        return "None"
+    txt = ",".join([f"{k}:{repr(v)}" for k,v in par_dict.items()])
+    return txt
 
-    if remove_dirt_mark:
+def decode_pardict(par_str: str) -> dict:
+    """Decode a parameter dictionary string from BenchData back into a dictionary."""
+    par_dict = {}
+    if par_str is None or par_str == "None" or par_str == "":
+        return par_dict
+
+    if par_str:
+        items = par_str.split(",")
+        for item in items:
+            k, v = item.split(":", 1)
+            par_dict[k] = ast.literal_eval(v)
+    return par_dict
+
+def load_bench_data(file: str, remove_dirty_mark=True, interprete_parameters=False, merge_with_par=False) -> np.ndarray:
+    """Load benchmark data from a CSV file into a structured numpy array."""
+    try:
+        data = np.genfromtxt(file, dtype=BenchData.data_type(), comments="#", ndmin=1)
+    except ValueError as e:
+        raise ValueError(f"Found file with an outdated format. Best to recreate {file}: {e}")
+    
+    if remove_dirty_mark:
         data["commit"] = np.char.rstrip(data["commit"], "+")
+
+    if interprete_parameters:
+        pars = {}
+        for i in range(len(data)):
+            par_dict = decode_pardict(data["parameters"][i])
+            for k,v in par_dict.items():
+                if k not in pars:
+                    pars[k] = []
+                pars[k].append(v)
+        for k in pars:
+            pars[k] = np.array(pars[k])
+        # create a structured data array with the parameters
+        pars = np.core.records.fromarrays(list(pars.values()), names=list(pars.keys()))
+
+        if merge_with_par:
+            data = rfn.merge_arrays((data, pars), flatten=True, usemask=False)
+        else:
+            return data, pars
 
     return data

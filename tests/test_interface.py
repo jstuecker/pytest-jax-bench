@@ -108,3 +108,16 @@ def test_tags(request):
 
     jb.measure(fn=fft, fn_jit=jax.jit(fft), x=x, tag="fft")
     jb.measure(fn=rfft, fn_jit=jax.jit(rfft), x=x, tag="rfft")
+
+from pytest_jax_bench.data import encode_pardict, decode_pardict
+def test_encode_decode_par_dict():
+    dicts = [
+        {},
+        {"n": 128},
+        {"foo": "bar"},
+        {"n": 128, "m": 256, "use_fast": True, "method": "fft"}
+    ]
+    for par_dict in dicts:
+        par_str = encode_pardict(par_dict)
+        par_dict_decoded = decode_pardict(par_str)
+        assert par_dict == par_dict_decoded

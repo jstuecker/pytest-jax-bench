@@ -5,7 +5,7 @@ import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
-from .data import BenchData, load_bench_data
+from .data import BenchData, load_bench_data, encode_pardict
 from .utils import folded_constants_bytes
 from dataclasses import dataclass
 
@@ -297,6 +297,10 @@ class JaxBench:
             self.path = nodeid_to_path(self.node_id, output_dir=self.output_dir)
             self.save_graph_svg = request.config.getoption("--ptjb-graphs-svg")
 
+            self.params = {}
+            if hasattr(request.node, "callspec") and request.node.callspec is not None:
+                self.params = request.node.callspec.params
+
             os.makedirs(self.output_dir, exist_ok=True)
         else: # Usage outside of pytest, some aspects will be missing
             self.forked = False
@@ -305,6 +309,7 @@ class JaxBench:
             self.path = path
             self.output_dir = os.path.dirname(path) if path is not None else None
             self.save_graph_svg = False
+            self.params = {}
 
         self.jit_rounds = int(jit_rounds)
         self.jit_warmup = int(jit_warmup)
@@ -395,6 +400,7 @@ class JaxBench:
         
         res.run_id, res.commit, res.commit_run = self.run_id, self.commit, self.commit_run
         res.tag = self.tag if tag is None else tag
+        res.parameters = encode_pardict(self.params)
         
         # First do eager profiling, to get a good idea of the memory
         if fn is not None and (self.eager_rounds > 0 or self.eager_warmup > 0):
