@@ -383,10 +383,10 @@ class JaxBench:
         self,
         fn: Optional[Callable[..., Any]] = None,
         fn_jit: Optional[Callable[..., Any]] = None,
-        tag = None,
         *args: Any,
+        tag = None,
         write = True,
-        **kwargs: Any,
+        **kwargs: Any
     ) -> BenchData:
         """Run selected measurements and write one numeric row per call."""
         out = None
