@@ -77,6 +77,13 @@ def test_pars_with_custom_plot(jax_bench, n):
     jb = jax_bench(jit_rounds=10, jit_warmup=1)
     jb.measure(fn_jit=jax.jit(rfft), x=x)
 
+@pytest.mark.ptjb(save_graph=True)
+def test_saving_graph(jax_bench):
+    x = jnp.ones((64, 64, 64), dtype=jnp.float32)
+
+    jb = jax_bench(jit_rounds=10, jit_warmup=1)
+    jb.measure(fn_jit=jax.jit(rfft), x=x)
+
 # -------------------------------- Working independently of pytest ------------------------------- #
 
 def test_standalone():

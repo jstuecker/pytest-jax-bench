@@ -45,7 +45,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Do not compare to previous runs of same commit (default: False)",
     )
     group.addoption(
-        "--ptjb-graphs-svg",
+        "--ptjb-save-graph",
         action="store_true",
         default=False,
         help="Save the compiled graph as SVG (if differing from previous)",
@@ -121,7 +121,7 @@ def node_to_path(test_nodeid: str, output_dir: str = ".", params=None, get_based
 
 def pytest_configure(config):
     config.addinivalue_line(
-        "markers", "ptjb(plot=func): mark a custom plotter function for pytest-jax-bench"
+        "markers", "ptjb(plot=func, plot_summary=func, save_graph=False): mark custom plotter functions"
     )
 
 def _to_wire(obj):
@@ -401,7 +401,12 @@ class JaxBench:
             self.node_id = request.node.nodeid
             if path is not None:
                 raise ValueError("Path is set through request. Only pass path outside of pytest.")
-            self.save_graph_svg = request.config.getoption("--ptjb-graphs-svg")
+            
+            ptjb_mark = request.node.get_closest_marker("ptjb")
+            if ptjb_mark is not None and "save_graph" in ptjb_mark.kwargs:
+                self.save_graph_svg = ptjb_mark.kwargs["save_graph"]
+            else:
+                self.save_graph_svg = request.config.getoption("--ptjb-save-graph")
 
             self.params = {}
             if hasattr(request.node, "callspec") and request.node.callspec is not None:

@@ -228,7 +228,5 @@ def test_pars_with_custom_plot(jax_bench, n):
 
 
 ### Plotting SVG Graphs
-You can autocreate SVG graphs if your jitted function by passing the option "--ptjb-graphs-svg". A new run's graph will only be saved if it differs from the last saved graph. (The difference detection is a bit challenging and may be slightly noisy.) Be aware that some graphs may get quite large!
-
-## ToDo:
-* Test on CPU
+You can autocreate SVG graphs of your jitted function by passing the option "--ptjb-save-graph". A new run's graph will only be saved if it differs from the last saved graph. (The difference detection is a bit challenging and may be slightly noisy.) Be aware that some graphs may get quite large!
+You can also toggle this per test by setting `@pytest.mark.ptjb(save_graph=True)`
