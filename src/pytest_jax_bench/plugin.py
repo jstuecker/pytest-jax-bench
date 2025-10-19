@@ -8,6 +8,9 @@ from typing import Any, Callable, Optional
 from .data import BenchData, load_bench_data, encode_pardict, last_entries_with
 from .utils import folded_constants_bytes
 from dataclasses import dataclass
+import marshal
+import inspect
+import importlib
 
 import pytest
 import subprocess
@@ -121,6 +124,36 @@ def pytest_configure(config):
         "markers", "ptjb(plot=func): mark a custom plotter function for pytest-jax-bench"
     )
 
+def _to_wire(obj):
+    """Convert to something marshal-able for pytest-forked."""
+    # already marshal-able?
+    try:
+        marshal.dumps(obj)
+        return obj
+    except Exception:
+        pass
+
+    # functions -> import path
+    if inspect.isfunction(obj) or inspect.ismethod(obj):
+        mod = getattr(obj, "__module__", None)
+        qn = getattr(obj, "__qualname__", None)
+        if mod and qn:
+            return {"__callable__": f"{mod}:{qn}"}
+
+    # last-resort: readable string (won't be callable later)
+    return {"__repr__": repr(obj)}
+
+def _from_wire(obj):
+    """Reconstruct callables from import path."""
+    if isinstance(obj, dict) and "__callable__" in obj:
+        mod_name, qualname = obj["__callable__"].split(":", 1)
+        mod = importlib.import_module(mod_name)
+        target = mod
+        for attr in qualname.split("."):
+            target = getattr(target, attr)
+        return target
+    return obj
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
@@ -133,7 +166,8 @@ def pytest_runtest_makereport(item, call):
         rep.user_properties.append(("params", {}))
     
     for mark in item.iter_markers(name="ptjb"):
-        rep.user_properties.append(("ptjb_mark", mark.kwargs))
+        safe_kwargs = {k: _to_wire(v) for k, v in mark.kwargs.items()}
+        rep.user_properties.append(("ptjb_mark", safe_kwargs))
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus : pytest.ExitCode, config: pytest.Config) -> None:
     output_dir = config.getoption("--ptjb-output-dir")
@@ -245,6 +279,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
         rep : pytest.TestReport = terminalreporter.getreports("passed")[0]
 
         ptjb_mark = dict(rep.user_properties).get("ptjb_mark", {})
+        ptjb_mark = {k: _from_wire(v) for k, v in ptjb_mark.items()} # unpack callables
 
         try:
             from . import plots

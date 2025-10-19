@@ -206,7 +206,7 @@ def test_with_custom_plot(jax_bench):
     jb = jax_bench(jit_rounds=10, jit_warmup=1)
     jb.measure(fn_jit=jax.jit(rfft), x=x)
 ```
-For now this only works if not using `--forked`. The plot will only be saved if a figure is returned, but of course you have the option to save the figure yourself.
+The plot will be saved automatically in a reasonable path if a figure is returned, but of course you also have the option to save the figure yourself and not return anything.
 
 For parameterized tests it is additionally possible to define a summary plot via `plot_summary`. In this case the data will contain the merged information of the tests with different parameters (`plot` would create one plot per parameter instead). For convenience it is also possible to set the `only_last` flag that will pre-filter the data, so that it only contains the result of the most recent run per parameter/tag.
 ```python
