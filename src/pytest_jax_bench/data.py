@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 import numpy as np
 from numpy.lib import recfunctions as rfn
-import ast
+import os
+import re
 
 # ---------------------------
 # Core measurement container
@@ -67,11 +68,22 @@ class BenchData:
                 fields.append((f.name, np.dtype(f.type).str))
         return np.dtype(fields)
 
+# Precompiled once (module scope) — no matches for inf/nan variants
+_INT_RE   = re.compile(r'^[+-]?\d+$')
+_FLOAT_RE = re.compile(r'^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$')
+
+_LITERALS = {
+    "true": True,
+    "false": False,
+    "null": None,
+    "none": None,
+}
+
 def parse_best(s: str):
     """
     Convert a string to the 'most appropriate' Python type:
     - "3"   -> int
-    - "0.3" -> float
+    - "0.3" -> float (incl. 3., .3, 1e6)
     - "true"/"false" -> bool (case-insensitive)
     - "null"/"none"  -> None
     - everything else -> str
@@ -81,25 +93,21 @@ def parse_best(s: str):
         return s  # keep empty strings as-is
 
     lower = s.lower()
-    if lower in {"true", "false"}:
-        return lower == "true"
-    if lower in {"null", "none"}:
-        return None
 
-    try:
-        # int() must not accept things like "3.0" or "3e5"
-        if all(c in "+-0123456789" for c in s) and any(ch.isdigit() for ch in s):
-            return int(s)
-    except ValueError:
-        pass
+    # Fast path for simple literals (O(1) dict lookup)
+    lit = _LITERALS.get(lower)
+    if lit is not None:
+        return lit
 
-    try:
-        # Reject float specials unless you actually want them; keep them as strings
-        val = float(s)
-        if lower not in {"nan", "+nan", "-nan", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity"}:
-            return val
-    except ValueError:
-        pass
+    # Strict int: optional single leading sign, then digits only
+    if _INT_RE.fullmatch(s):
+        # no exceptions in the common path
+        return int(s)
+
+    # Strict float: decimal and/or exponent; excludes inf/nan by design
+    if _FLOAT_RE.fullmatch(s):
+        # float() here should not raise given the regex
+        return float(s)
 
     return s
 
@@ -123,7 +131,7 @@ def decode_pardict(par_str: str) -> dict:
             par_dict[k] = parse_best(v)
     return par_dict
 
-def load_bench_data(file: str, remove_dirty_mark=True, interprete_parameters=False, merge_with_par=False) -> np.ndarray:
+def load_file_data(file: str, remove_dirty_mark=True, interprete_parameters=False) -> np.ndarray:
     """Load benchmark data from a CSV file into a structured numpy array."""
     try:
         data = np.genfromtxt(file, dtype=BenchData.data_type(), comments="#", ndmin=1)
@@ -144,11 +152,32 @@ def load_bench_data(file: str, remove_dirty_mark=True, interprete_parameters=Fal
         for k in pars:
             pars[k] = np.array(pars[k])
         # create a structured data array with the parameters
-        pars = np.core.records.fromarrays(list(pars.values()), names=list(pars.keys()))
+        # pars = np.core.records.fromarrays(list(pars.values()), names=list(pars.keys()))
+        pars = np.rec.fromarrays(list(pars.values()), names=list(pars.keys()))
 
-        if merge_with_par:
-            data = rfn.merge_arrays((data, pars), flatten=True, usemask=False)
-        else:
-            return data, pars
+        # if merge_with_par:
+        #     data = rfn.merge_arrays((data, pars), flatten=True, usemask=False)
+        # else:
+        return data, pars
 
     return data
+
+def load_bench_data(file: str, remove_dirty_mark=True, interprete_parameters=False) -> np.ndarray:
+    if os.path.isfile(file):
+        return load_file_data(file, remove_dirty_mark, interprete_parameters)
+    elif os.path.isdir(file):
+        all_data = []
+        all_par = []
+        for fname in os.listdir(file):
+            if fname.endswith(".csv"):
+                fpath = os.path.join(file, fname)
+                data, par = load_file_data(fpath, remove_dirty_mark, interprete_parameters=True)
+                all_data.append(data)
+                all_par.append(par)
+        if len(all_data) == 0:
+            raise FileNotFoundError(f"No CSV files found in directory {file}")
+        
+        if interprete_parameters:
+            return np.concatenate(all_data), np.concatenate(all_par)
+        else:
+            return np.concatenate(all_data)

@@ -59,6 +59,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default="run",
         help="X-axis for plots - can be 'commit' or 'run' (default: run)",
     )
+    group.addoption(
+        "--ptjb-plot-format",
+        action="store",
+        default="png",
+        help="File format for plots - can be 'png' or 'pdf' (default: png)",
+    )
 
 def select_commit_runs(data, commit, tag=None):
     commit_base = commit.rstrip("+")
@@ -93,15 +99,22 @@ def _colored_diff(txt, v1, v2, tol=0.):
         color = "grey"
     return _colored(txt, color)
 
-def node_to_path(test_nodeid: str, output_dir: str = ".", params=None) -> str:
+def node_to_path(test_nodeid: str, output_dir: str = ".", params=None, get_basedir=False) -> str:
     nodeid_save = re.sub(r"/", "-", test_nodeid)
     nodeid_save = re.sub(r"::", "--", nodeid_save)
 
     if params is not None and len(params) > 0:
         test_base = re.sub(r"\[.*\]$", "", nodeid_save)
-        return os.path.join(output_dir, test_base, encode_pardict(params))
+        base_dir = os.path.join(output_dir, test_base)
+        file = os.path.join(base_dir, encode_pardict(params))
     else:
-        return os.path.join(output_dir, nodeid_save)
+        base_dir = None
+        file = os.path.join(output_dir, nodeid_save)
+
+    if get_basedir:
+        return file, base_dir
+    else:
+        return file
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
@@ -221,10 +234,6 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             terminalreporter.write_line(line)
 
     if config.getoption("--ptjb-plot"):
-        reports = terminalreporter.getreports("passed")
-        nodeids = [r.nodeid for r in reports]
-        params = [dict(r.user_properties).get("params", {}) for r in reports]
-        paths = [node_to_path(nid, output_dir=output_dir, params=p) for nid, p in zip(nodeids, params)]
 
         try:
             from . import plots
@@ -238,13 +247,29 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
         if xaxis not in ("commit", "run"):
             terminalreporter.write_line(f"Unknown xaxis {xaxis}, must be 'commit', 'run' or 'tag'")
             return
+        save = config.getoption("--ptjb-plot-format")
+        if save not in ("png", "pdf"):
+            terminalreporter.write_line(f"Unknown plot format {save}, must be 'png' or 'pdf'")
+            return
         
         if config.getoption("-v") >= 1:
             terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) plots")
-        plots.plot_all_benchmarks(
-            paths=paths, bench_dir=output_dir, xaxis=xaxis, save="png",
-            trep= terminalreporter if config.getoption("-v") >= 1 else None
-        )
+
+        trep = terminalreporter if config.getoption("-v") >= 1 else None
+
+        groups_plotted = []
+        for rep in terminalreporter.getreports("passed"):
+            params = dict(rep.user_properties).get("params", {})
+            path, base = node_to_path(rep.nodeid, output_dir=output_dir, params=params, get_basedir=True)
+            
+            plots.plot_normal_benchmark(path, xaxis=xaxis, save=save, trep=trep)
+            
+            if len(params) > 0: # For parameterized tests also create additional plots
+                if base in groups_plotted:
+                    continue
+                plots.plot_parametrized_benchmark(base, xaxis=xaxis, save=save, trep=trep)
+                groups_plotted.append(base)
+
         if config.getoption("-v") == 0:
             terminalreporter.write_line(f"All PTJB benchmarks plots saved to {os.path.join(output_dir)}")
 

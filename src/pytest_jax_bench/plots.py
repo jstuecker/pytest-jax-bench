@@ -7,6 +7,7 @@ import numpy as np
 import os
 from .data import load_bench_data
 import re
+from numpy.lib import recfunctions as rfn
 
 def get_commit_info(arr):
     # First get each commit once. Note this will screw up the order, we'll fix it later
@@ -64,6 +65,11 @@ def prepare_xaxis(data, xaxis="commit", ax=None):
         lean_tag = [re.sub(r"[\[\]]", "", t) for t in uq_tag]
         tags_are_long = np.any([len(t) > 40/len(lean_tag) for t in lean_tag])
         ax.set_xticks(np.arange(len(lean_tag)), lean_tag, rotation=90 if tags_are_long else 0)
+    elif xaxis in data.dtype.names:
+        ax.set_xlabel(xaxis)
+        x = data[xaxis]
+        if (np.max(x) / np.min(x) > 20) and np.all(x > 0):
+            ax.set_xscale("log")
     else:
         raise ValueError(f"Unknown xaxis {xaxis}, must be 'commit' or 'run'")
     
@@ -156,9 +162,6 @@ def plot_memory_usage_tagged(data, title=None, xaxis="commit", ax=None):
         if np.any((data["jit_peak_bytes"] > 0) | (data["eager_peak_bytes"] > 0)):
             ax.set_yscale("log")
 
-    # ax.plot([], [], label="jit (peak)", color="k", marker="o")
-    # ax.plot([], [], label="eager (peak)", ls="dashed", color="k", marker="x")
-
     ax.set_ylabel("Jit-Peak-Memory (MB)")
     ax.legend()
     
@@ -209,30 +212,46 @@ def iterate_data(paths=None, bench_dir=".benchmarks"):
 
             yield data_gr, path_gr
 
-def plot_all_benchmarks(paths=None, bench_dir=".benchmarks", xaxis="commit", save="png", trep=None):
-    assert save in {"png", "pdf"}
+def save_plot(data, path, xaxis="run", tagged=False, save="png", trep=None):
+    title = path.split("--")[-1] #.split(":")[-1]
+    fig, axs = plt.subplots(1, 2, figsize=(10, 4))
+    if tagged:
+        plot_run_performance_tagged(data, title=title, xaxis=xaxis, ax=axs[0])
+        plot_memory_usage_tagged(data, title=title, xaxis=xaxis, ax=axs[1])
+    else:
+        plot_run_performance(data, title=title, xaxis=xaxis, ax=axs[0])
+        plot_memory_usage(data, title=title, xaxis=xaxis, ax=axs[1])
+    fig.tight_layout()
+    fig.savefig(path + "." + save)
+    plt.close(fig)
 
-    def save_plot(data, path, xaxis=xaxis, tagged=False):
-        title = path.split("/")[-1].split(":")[-1]
-        fig, axs = plt.subplots(1, 2, figsize=(10, 4))
-        if tagged:
-            plot_run_performance_tagged(data, title=title, xaxis=xaxis, ax=axs[0])
-            plot_memory_usage_tagged(data, title=title, xaxis=xaxis, ax=axs[1])
-        else:
-            plot_run_performance(data, title=title, xaxis=xaxis, ax=axs[0])
-            plot_memory_usage(data, title=title, xaxis=xaxis, ax=axs[1])
-        fig.tight_layout()
-        fig.savefig(path + "." + save)
-        plt.close(fig)
+    if trep == "print":
+        print(f"Generated plot {path}.{save}")
+    elif trep is not None:
+        trep.write_line(f"Generated plot {path}.{save}")
 
-        if trep == "print":
-            print(f"Generated plot {path}.{save}")
-        elif trep is not None:
-            trep.write_line(f"Generated plot {path}.{save}")
+def plot_normal_benchmark(path, xaxis="run", save="png", trep=None):
+    data = load_bench_data(path + ".csv")
+    if data is None: return
 
-    for data, path in iterate_data(paths, bench_dir=bench_dir):
+    if len(np.unique(data["tag"])) > 1:
+        save_plot(data, path=path, xaxis=xaxis, tagged=True, save=save, trep=trep)
+        save_plot(data, path=path + "_xtag", xaxis="tag", tagged=False, save=save, trep=trep)
+    else:
+        save_plot(data, path=path, xaxis=xaxis, tagged=False, save=save, trep=trep)
+
+def plot_parametrized_benchmark(path, xaxis="commit", save="png", trep=None):
+    data, pars = load_bench_data(path, interprete_parameters=True)
+    if data is None: return
+
+    data_with_par =  rfn.merge_arrays((data, pars), flatten=True, usemask=False)
+    
+    for k in pars.dtype.names:
+        # Find the last locations of unique pairs of tag and k
+        pairs = data_with_par[["tag", k]]
+        last_idx = len(data_with_par) - 1 - np.unique(pairs[::-1], return_index=True)[1]
+
         if len(np.unique(data["tag"])) > 1:
-            save_plot(data, path=path, xaxis=xaxis, tagged=True)
-            save_plot(data, path=path + "_xtag", xaxis="tag", tagged=False)
+            save_plot(data_with_par[last_idx], path=path + f"/{k}", xaxis=k, tagged=True, save=save, trep=trep)
         else:
-            save_plot(data, path=path, xaxis=xaxis, tagged=False)
+            save_plot(data_with_par[last_idx], path=path + f"/{k}", xaxis=k, tagged=False, save=save, trep=trep)
