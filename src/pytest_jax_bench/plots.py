@@ -62,7 +62,7 @@ def prepare_xaxis(data, xaxis="commit", ax=None):
         x = np.arange(len(uq_tag))
         # remove [] brackets for parameterized tests_
         lean_tag = [re.sub(r"[\[\]]", "", t) for t in uq_tag]
-        tags_are_long = np.any([len(t) > 100/len(lean_tag) for t in lean_tag])
+        tags_are_long = np.any([len(t) > 40/len(lean_tag) for t in lean_tag])
         ax.set_xticks(np.arange(len(lean_tag)), lean_tag, rotation=90 if tags_are_long else 0)
     else:
         raise ValueError(f"Unknown xaxis {xaxis}, must be 'commit' or 'run'")
@@ -124,10 +124,11 @@ def plot_memory_usage(data, title=None, xaxis="commit", ax=None):
 
     ax.set_title(title)
     ax.plot(x, data["jit_peak_bytes"]/1024.**2, label="jit (peak)", marker="o", alpha=0.8)
-    ax.plot(x[data["eager_peak_bytes"]>=0], data["eager_peak_bytes"][data["eager_peak_bytes"]>=0]/1024.**2, label="eager (peak)", marker="o", alpha=0.8)
+    if np.any(data["eager_peak_bytes"] >= 0):
+        ax.plot(x[data["eager_peak_bytes"]>=0], data["eager_peak_bytes"][data["eager_peak_bytes"]>=0]/1024.**2, label="eager (peak)", marker="o", alpha=0.8)
 
     ax.plot(x, data["jit_temporary_bytes"]/1024.**2, label="jit (temp)", ls="dashed", marker="o", alpha=0.8)
-    if np.any(data["jit_constants_bytes"] > 1e3):
+    if np.any(data["jit_constants_bytes"] > data["jit_peak_bytes"] * 0.01):
         ax.plot(x, data["jit_constants_bytes"]/1024.**2, label="jit (const)", ls="dashed", marker="o", alpha=0.8)
 
     ax.set_ylabel("Memory (MB)")

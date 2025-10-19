@@ -387,7 +387,7 @@ class JaxBench:
         tag = None,
         write = True,
         **kwargs: Any
-    ) -> BenchData:
+    ) -> tuple[BenchData, Any]:
         """Run selected measurements and write one numeric row per call."""
         out = None
         res = BenchData(jit_rounds=self.jit_rounds, jit_warmup=self.jit_warmup,
