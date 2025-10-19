@@ -189,6 +189,44 @@ You can create plots in two different ways:
 Depending on the chosen options, this will either create one big summary plot or an individual plot for each test. For example, this is how one of my individual plots looked, after I had "accidentally" increased the size of my FFT, then panicked and made it too small and finally reverted it to the correct state:
 ![pytest-jax-bench plot example](assets/plot_example.png)
 
+### Custom plotting functions
+You can define custom plotting functions as follows:
+```python
+def custom_plot(data):
+    fig = plt.figure()
+    plt.xlabel("run_id")
+    plt.plot(data["run_id"], data["compile_ms"])
+    plt.ylabel("compile_ms")
+    return fig
+
+@pytest.mark.ptjb(plot=custom_plot)
+def test_with_custom_plot(jax_bench):
+    x = jnp.ones((128, 128, 128), dtype=jnp.float32)
+
+    jb = jax_bench(jit_rounds=10, jit_warmup=1)
+    jb.measure(fn_jit=jax.jit(rfft), x=x)
+```
+For now this only works if not using `--forked`. The plot will only be saved if a figure is returned, but of course you have the option to save the figure yourself.
+
+For parameterized tests it is additionally possible to define a summary plot via `plot_summary`. In this case the data will contain the merged information of the tests with different parameters (`plot` would create one plot per parameter instead). For convenience it is also possible to set the `only_last` flag that will pre-filter the data, so that it only contains the result of the most recent run per parameter/tag.
+```python
+def custom_plot_par(data):
+    fig = plt.figure()
+    plt.xlabel("n")
+    plt.ylabel("jit_mean_ms")
+    plt.plot(data["n"], data["jit_mean_ms"])
+    return fig
+
+@pytest.mark.ptjb(plot_summary=custom_plot_par, only_last=True)
+@pytest.mark.parametrize("n", [128, 170, 220, 270])
+def test_pars_with_custom_plot(jax_bench, n):
+    x = jnp.ones((n, n, n), dtype=jnp.float32)
+
+    jb = jax_bench(jit_rounds=10, jit_warmup=1)
+    jb.measure(fn_jit=jax.jit(rfft), x=x)
+```
+
+
 ### Plotting SVG Graphs
 You can autocreate SVG graphs if your jitted function by passing the option "--ptjb-graphs-svg". A new run's graph will only be saved if it differs from the last saved graph. (The difference detection is a bit challenging and may be slightly noisy.) Be aware that some graphs may get quite large!
 

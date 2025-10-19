@@ -5,7 +5,7 @@ import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
-from .data import BenchData, load_bench_data, encode_pardict
+from .data import BenchData, load_bench_data, encode_pardict, last_entries_with
 from .utils import folded_constants_bytes
 from dataclasses import dataclass
 
@@ -116,6 +116,11 @@ def node_to_path(test_nodeid: str, output_dir: str = ".", params=None, get_based
     else:
         return file
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "ptjb(plot=func): mark a custom plotter function for pytest-jax-bench"
+    )
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     outcome = yield
@@ -126,6 +131,9 @@ def pytest_runtest_makereport(item, call):
         rep.user_properties.append(("params", params))
     else:
         rep.user_properties.append(("params", {}))
+    
+    for mark in item.iter_markers(name="ptjb"):
+        rep.user_properties.append(("ptjb_mark", mark.kwargs))
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus : pytest.ExitCode, config: pytest.Config) -> None:
     output_dir = config.getoption("--ptjb-output-dir")
@@ -234,6 +242,9 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             terminalreporter.write_line(line)
 
     if config.getoption("--ptjb-plot"):
+        rep : pytest.TestReport = terminalreporter.getreports("passed")[0]
+
+        ptjb_mark = dict(rep.user_properties).get("ptjb_mark", {})
 
         try:
             from . import plots
@@ -263,12 +274,32 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             path, base = node_to_path(rep.nodeid, output_dir=output_dir, params=params, get_basedir=True)
             
             plots.plot_normal_benchmark(path, xaxis=xaxis, save=save, trep=trep)
+
+            def create_custom_plot(file, custom_plot_func, outfile):
+                data = load_bench_data(file, interprete_parameters=True, merge_param=True)
+                if "only_last" in ptjb_mark and ptjb_mark["only_last"]:
+                    data = last_entries_with(data, keys=("tag", "parameters"))
+                else:
+                    data = data[np.argsort(data["run_id"])]
+                
+                fig = custom_plot_func(data)
+                if fig is not None:
+                    fig.savefig(outfile)
+                    fig.clf()
+                    if config.getoption("-v") >= 1:
+                        trep.write_line(f"Generated custom plot {path}_custom.{save}")
+
+            if "plot" in ptjb_mark:
+                create_custom_plot(path + ".csv", ptjb_mark["plot"], path + "_custom." + save)
             
             if len(params) > 0: # For parameterized tests also create additional plots
                 if base in groups_plotted:
                     continue
                 plots.plot_parametrized_benchmark(base, xaxis=xaxis, save=save, trep=trep)
                 groups_plotted.append(base)
+
+                if "plot_summary" in ptjb_mark:
+                    create_custom_plot(base, ptjb_mark["plot_summary"], base + "/custom." + save)
 
         if config.getoption("-v") == 0:
             terminalreporter.write_line(f"All PTJB benchmarks plots saved to {os.path.join(output_dir)}")

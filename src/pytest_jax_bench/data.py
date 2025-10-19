@@ -153,31 +153,44 @@ def load_file_data(file: str, remove_dirty_mark=True, interprete_parameters=Fals
             pars[k] = np.array(pars[k])
         # create a structured data array with the parameters
         # pars = np.core.records.fromarrays(list(pars.values()), names=list(pars.keys()))
-        pars = np.rec.fromarrays(list(pars.values()), names=list(pars.keys()))
-
-        # if merge_with_par:
-        #     data = rfn.merge_arrays((data, pars), flatten=True, usemask=False)
-        # else:
-        return data, pars
+        if len(pars) == 0:
+            return data, None
+        else:
+            pars = np.rec.fromarrays(list(pars.values()), names=list(pars.keys()))
+            return data, pars
 
     return data
 
-def load_bench_data(file: str, remove_dirty_mark=True, interprete_parameters=False) -> np.ndarray:
+def load_bench_data(file: str, remove_dirty_mark=True, interprete_parameters=False, merge_param=False) -> np.ndarray:
     if os.path.isfile(file):
-        return load_file_data(file, remove_dirty_mark, interprete_parameters)
+        data, pars = load_file_data(file, remove_dirty_mark, interprete_parameters=True)
     elif os.path.isdir(file):
         all_data = []
         all_par = []
         for fname in os.listdir(file):
             if fname.endswith(".csv"):
                 fpath = os.path.join(file, fname)
-                data, par = load_file_data(fpath, remove_dirty_mark, interprete_parameters=True)
+                data, pars = load_file_data(fpath, remove_dirty_mark, interprete_parameters=True)
                 all_data.append(data)
-                all_par.append(par)
+                all_par.append(pars)
         if len(all_data) == 0:
             raise FileNotFoundError(f"No CSV files found in directory {file}")
         
-        if interprete_parameters:
-            return np.concatenate(all_data), np.concatenate(all_par)
-        else:
-            return np.concatenate(all_data)
+        data = np.concatenate(all_data)
+        pars = np.concatenate(all_par)
+    else:
+        data, pars = None, None
+    
+    if merge_param:
+        if pars is not None:
+            data = rfn.merge_arrays((data, pars), flatten=True, usemask=False)
+        return data
+    elif interprete_parameters:
+        return data, pars
+    else:
+        return data
+    
+def last_entries_with(data, keys=("tag",)):
+    pairs = data[list(keys)]
+    last_idx = len(data) - 1 - np.unique(pairs[::-1], return_index=True)[1]
+    return data[last_idx]

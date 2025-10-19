@@ -5,7 +5,7 @@ except ImportError:
                       "'pip install pytest-jax-bench[plot]' or 'pip install matplotlib'.")
 import numpy as np
 import os
-from .data import load_bench_data
+from .data import load_bench_data, last_entries_with
 import re
 from numpy.lib import recfunctions as rfn
 
@@ -210,13 +210,12 @@ def plot_parametrized_benchmark(path, xaxis="commit", save="png", trep=None):
     
     for k in pars.dtype.names:
         # Find the last locations of unique pairs of tag and k
-        pairs = data_with_par[["tag", k]]
-        last_idx = len(data_with_par) - 1 - np.unique(pairs[::-1], return_index=True)[1]
+        data_sel = last_entries_with(data_with_par, keys=("tag", k))
 
         if len(np.unique(data["tag"])) > 1:
-            create_and_save(data_with_par[last_idx], path=path + f"/{k}", xaxis=k, tagged=True, save=save, trep=trep)
+            create_and_save(data_sel, path=path + f"/{k}", xaxis=k, tagged=True, save=save, trep=trep)
         else:
-            create_and_save(data_with_par[last_idx], path=path + f"/{k}", xaxis=k, tagged=False, save=save, trep=trep)
+            create_and_save(data_sel, path=path + f"/{k}", xaxis=k, tagged=False, save=save, trep=trep)
 
 def plot_all_benchmarks(bench_dir="../.benchmarks", xaxis="commit", save="png", trep=None):
     files = os.listdir(bench_dir)

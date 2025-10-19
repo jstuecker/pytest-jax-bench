@@ -2,7 +2,8 @@
     "python.testing.pytestArgs": [
         "tests",
         "-v",
-        "--rootdir=tests"
+        "--rootdir=tests",
+        "--ptjb-plot"
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
