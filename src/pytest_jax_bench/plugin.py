@@ -93,12 +93,26 @@ def _colored_diff(txt, v1, v2, tol=0.):
         color = "grey"
     return _colored(txt, color)
 
-def nodeid_to_path(test_nodeid: str, output_dir: str = ".") -> str:
-    test_file, test_name = test_nodeid.split("::")
-    test_file = re.sub(r"[^A-Za-z0-9._-]+", ":", test_file)
-    test_file = re.sub(r"\.py", "", test_file)
+def node_to_path(test_nodeid: str, output_dir: str = ".", params=None) -> str:
+    nodeid_save = re.sub(r"/", "-", test_nodeid)
+    nodeid_save = re.sub(r"::", "--", nodeid_save)
 
-    return os.path.join(output_dir, f"{test_file}::{test_name}")
+    if params is not None and len(params) > 0:
+        test_base = re.sub(r"\[.*\]$", "", nodeid_save)
+        return os.path.join(output_dir, test_base, encode_pardict(params))
+    else:
+        return os.path.join(output_dir, nodeid_save)
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    rep = outcome.get_result()
+    if call.when == "call" and hasattr(item, "callspec"):
+        # store something serializable; repr() is safe for JUnit/XML too
+        params = {k: repr(v) for k, v in item.callspec.params.items()}
+        rep.user_properties.append(("params", params))
+    else:
+        rep.user_properties.append(("params", {}))
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus : pytest.ExitCode, config: pytest.Config) -> None:
     output_dir = config.getoption("--ptjb-output-dir")
@@ -170,7 +184,9 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             entries.append(entry)
 
         for report in terminalreporter.getreports("passed"):
-            path = nodeid_to_path(report.nodeid, output_dir=output_dir) + ".csv"
+            params = dict(report.user_properties).get("params", {})
+
+            path = node_to_path(report.nodeid, output_dir=output_dir, params=params) + ".csv"
             if not os.path.exists(path):
                 continue
             data = load_bench_data(path, report.nodeid)
@@ -205,10 +221,10 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             terminalreporter.write_line(line)
 
     if config.getoption("--ptjb-plot"):
-        nodeids = [r.nodeid for r in terminalreporter.getreports("passed")]
-        paths = [nodeid_to_path(nid, output_dir=output_dir) for nid in nodeids]
-
-        report : pytest.TestReport = terminalreporter.getreports("passed")[0]
+        reports = terminalreporter.getreports("passed")
+        nodeids = [r.nodeid for r in reports]
+        params = [dict(r.user_properties).get("params", {}) for r in reports]
+        paths = [node_to_path(nid, output_dir=output_dir, params=p) for nid, p in zip(nodeids, params)]
 
         try:
             from . import plots
@@ -294,14 +310,14 @@ class JaxBench:
             self.node_id = request.node.nodeid
             if path is not None:
                 raise ValueError("Path is set through request. Only pass path outside of pytest.")
-            self.path = nodeid_to_path(self.node_id, output_dir=self.output_dir)
             self.save_graph_svg = request.config.getoption("--ptjb-graphs-svg")
 
             self.params = {}
             if hasattr(request.node, "callspec") and request.node.callspec is not None:
                 self.params = request.node.callspec.params
+            self.path = node_to_path(self.node_id, output_dir=self.output_dir, params=self.params)
 
-            os.makedirs(self.output_dir, exist_ok=True)
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
         else: # Usage outside of pytest, some aspects will be missing
             self.forked = False
             self.tag = "base"

@@ -67,11 +67,47 @@ class BenchData:
                 fields.append((f.name, np.dtype(f.type).str))
         return np.dtype(fields)
 
+def parse_best(s: str):
+    """
+    Convert a string to the 'most appropriate' Python type:
+    - "3"   -> int
+    - "0.3" -> float
+    - "true"/"false" -> bool (case-insensitive)
+    - "null"/"none"  -> None
+    - everything else -> str
+    """
+    s = s.strip()
+    if s == "":
+        return s  # keep empty strings as-is
+
+    lower = s.lower()
+    if lower in {"true", "false"}:
+        return lower == "true"
+    if lower in {"null", "none"}:
+        return None
+
+    try:
+        # int() must not accept things like "3.0" or "3e5"
+        if all(c in "+-0123456789" for c in s) and any(ch.isdigit() for ch in s):
+            return int(s)
+    except ValueError:
+        pass
+
+    try:
+        # Reject float specials unless you actually want them; keep them as strings
+        val = float(s)
+        if lower not in {"nan", "+nan", "-nan", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity"}:
+            return val
+    except ValueError:
+        pass
+
+    return s
+
 def encode_pardict(par_dict: dict) -> str:
     """Encode a parameter dictionary as a string for storage in BenchData."""
     if par_dict is None or len(par_dict) == 0:
         return "None"
-    txt = ",".join([f"{k}:{repr(v)}" for k,v in par_dict.items()])
+    txt = ",".join([f"{k}-{v}" for k,v in par_dict.items()])
     return txt
 
 def decode_pardict(par_str: str) -> dict:
@@ -83,8 +119,8 @@ def decode_pardict(par_str: str) -> dict:
     if par_str:
         items = par_str.split(",")
         for item in items:
-            k, v = item.split(":", 1)
-            par_dict[k] = ast.literal_eval(v)
+            k, v = item.split("-", 1)
+            par_dict[k] = parse_best(v)
     return par_dict
 
 def load_bench_data(file: str, remove_dirty_mark=True, interprete_parameters=False, merge_with_par=False) -> np.ndarray:
