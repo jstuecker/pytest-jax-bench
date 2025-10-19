@@ -179,8 +179,10 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             new, old = get_comparison_data(data, tag=tag)
             if new is None: 
                 return
+            if no_compare:
+                old = new
             
-            same = (new["run_id"] == old["run_id"]) or no_compare
+            same = new["run_id"] == old["run_id"]
 
             entry = {}
 
@@ -194,7 +196,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             def compare_perf(key, std=0., tol=None, only_different=False):
                 if tol is None: tol = 2.*std
                 v1, v2 = old[key], new[key]
-                if same:
+                if same and not np.isnan(v2):
                     txt = f"{v2:.1f}"
                 elif only_different and np.abs(v1 - v2) <= std*2.:
                     txt = ""
@@ -212,7 +214,7 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             def compare_mem(key, only_different=False, min_mb=0.):
                 v1 = old[key]/1024.**2 if old[key] >= 0 else np.nan
                 v2 = new[key]/1024.**2 if new[key] >= 0 else np.nan
-                if same:
+                if same and not np.isnan(v2):
                     txt = f"{v2:.3g}"
                 elif only_different and v1 == v2:
                     txt = ""
