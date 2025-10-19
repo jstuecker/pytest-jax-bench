@@ -161,7 +161,6 @@ def plot_memory_usage_tagged(data, title=None, xaxis="commit", ax=None):
     ax.set_ylabel("Jit-Peak-Memory (MB)")
     ax.legend()
     
-
     return ax
 
 
@@ -233,6 +232,6 @@ def plot_all_benchmarks(paths=None, bench_dir=".benchmarks", xaxis="commit", sav
     for data, path in iterate_data(paths, bench_dir=bench_dir):
         if len(np.unique(data["tag"])) > 1:
             save_plot(data, path=path, xaxis=xaxis, tagged=True)
-            save_plot(data, path=path + "_tag", xaxis="tag", tagged=False)
+            save_plot(data, path=path + "_xtag", xaxis="tag", tagged=False)
         else:
             save_plot(data, path=path, xaxis=xaxis, tagged=False)

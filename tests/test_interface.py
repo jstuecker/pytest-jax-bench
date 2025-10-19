@@ -76,6 +76,14 @@ def test_three_parameters(request, n1, n2, n3):
     jb = JaxBench(request, jit_rounds=10, jit_warmup=2, eager_rounds=5, eager_warmup=1)
     jb.measure(fn=rfft, fn_jit=jax.jit(rfft), x=x)
 
+@pytest.mark.parametrize("n", [128, 192, 256])
+def test_parameterized_with_tags(request, n):
+    x = jnp.ones((n, n, n), dtype=jnp.float32)
+
+    jb = JaxBench(request, jit_rounds=10, jit_warmup=2, eager_rounds=5, eager_warmup=1)
+    jb.measure(fn=rfft, fn_jit=jax.jit(rfft), x=x, tag="A")
+    jb.measure(fn=fft, fn_jit=jax.jit(fft), x=x, tag="B")
+
 def f(x, a):
     return x * a
 f.jit = jax.jit(f, static_argnames=['a'])
