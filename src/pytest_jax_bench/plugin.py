@@ -33,12 +33,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Directory for output files (default: .benchmarks)",
     )
     group.addoption(
-        "--ptjb-basetag",
-        action="store",
-        default="base",
-        help="Modify basetag for this benchmark run (default: base)",
-    )
-    group.addoption(
         "--ptjb-no-compare",
         action="store_true",
         default=False,
@@ -397,7 +391,7 @@ class JaxBench:
         if request is not None:
             self.forked = request.config.getoption("--forked", False)
             self.output_dir = request.config.getoption("--ptjb-output-dir")
-            self.tag = request.config.getoption("--ptjb-basetag", "base")
+            self.tag = "base"
             self.node_id = request.node.nodeid
             if path is not None:
                 raise ValueError("Path is set through request. Only pass path outside of pytest.")
