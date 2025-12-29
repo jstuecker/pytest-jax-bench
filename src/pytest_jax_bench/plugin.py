@@ -164,6 +164,9 @@ def pytest_runtest_makereport(item, call):
         rep.user_properties.append(("ptjb_mark", safe_kwargs))
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus : pytest.ExitCode, config: pytest.Config) -> None:
+    if jax.process_index() != 0:
+        return
+    
     output_dir = config.getoption("--ptjb-output-dir")
     
     if config.getoption("-v") >= 0:
@@ -409,7 +412,8 @@ class JaxBench:
                 self.params = request.node.callspec.params
             self.path = node_to_path(self.node_id, output_dir=self.output_dir, params=self.params)
 
-            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            if jax.process_index() == 0:
+                os.makedirs(os.path.dirname(self.path), exist_ok=True)
         else: # Usage outside of pytest, some aspects will be missing
             self.forked = False
             self.tag = "base"
@@ -532,7 +536,7 @@ class JaxBench:
             if self.jit_rounds > 0:
                 out, res.jit_mean_ms, res.jit_std_ms = self.profile_jit(fn_jit, *args, **kwargs)
 
-            if self.save_graph_svg:
+            if self.save_graph_svg and (jax.process_index() == 0):
                 from .utils import save_graph_svg
                 filename = f"{self.path}-{self.run_id}-{res.tag}.svg"
 
@@ -546,11 +550,10 @@ class JaxBench:
                         break
 
                 save_graph_svg(fn_compiled, filename, only_if_different=last_svg)
-
-        if write and self.path is not None:
-            self._write_row(res)
-        elif write:
+        if write and self.path is None:
             raise ValueError("Please either provide a path on creation or set write=False.")
+        elif write and (jax.process_index() == 0):
+            self._write_row(res)
         
         self.measurement += 1
 
