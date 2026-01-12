@@ -523,7 +523,12 @@ class JaxBench:
             graph_mem = fn_compiled.memory_analysis()
 
             res.jit_constants_bytes = graph_mem.generated_code_size_in_bytes
-            res.jit_peak_bytes = graph_mem.peak_memory_in_bytes
+            try:
+                res.jit_peak_bytes = graph_mem.peak_memory_in_bytes
+            except AttributeError as e:
+                warnings.warn(f"Failed to access peak_memory_in_bytes ({e})", RuntimeWarning)
+                res.jit_peak_bytes = 0
+
             res.jit_temporary_bytes = graph_mem.temp_size_in_bytes
             try:
                 # It seems likely the handling of jax's folded constants will change in the future
