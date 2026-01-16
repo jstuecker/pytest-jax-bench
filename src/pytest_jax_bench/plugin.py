@@ -15,6 +15,7 @@ import importlib
 import pytest
 import subprocess
 import numpy as np
+import nvtx
 
 import warnings
 
@@ -441,7 +442,7 @@ class JaxBench:
         t2 = time.perf_counter()
         return float(np.round((t2 - t1) * 1000.0, 3)), lowered, compiled
 
-    def profile_jit(self, fn_jit: Callable[..., Any], *args: Any, **kwargs: Any) -> tuple[float, float]:
+    def profile_jit(self, fn_jit: Callable[..., Any], descr_name, *args: Any, **kwargs: Any) -> tuple[float, float]:
         """Return (mean_ms, std_ms, rounds, warmup)."""
         out = None
         for _ in range(self.jit_warmup):
@@ -449,12 +450,13 @@ class JaxBench:
         jax.block_until_ready(out)
 
         times = []
-        for _ in range(self.jit_rounds):
-            t0 = time.perf_counter()
-            out = fn_jit(*args, **kwargs)
-            jax.block_until_ready(out)
-            t1 = time.perf_counter()
-            times.append((t1 - t0) * 1000.0)
+        for round in range(self.jit_rounds):
+            with nvtx.annotate(f"jitrun-{descr_name}[{round}]", color="yellow"):
+                t0 = time.perf_counter()
+                out = fn_jit(*args, **kwargs)
+                jax.block_until_ready(out)
+                t1 = time.perf_counter()
+                times.append((t1 - t0) * 1000.0)
 
         if self.jit_rounds >= 1:
             return out, float(np.round(np.mean(times), 3)), float(np.round(np.std(times), 3))
@@ -506,6 +508,13 @@ class JaxBench:
         **kwargs: Any
     ) -> tuple[BenchData, Any]:
         """Run selected measurements and write one numeric row per call."""
+        if tag is not None:
+            name = tag
+        elif fn is not None:
+            name = str(fn)
+        else:
+            name = str(fn_jit)
+
         out = None
         res = BenchData(jit_rounds=self.jit_rounds, jit_warmup=self.jit_warmup,
                         eager_rounds=self.eager_rounds, eager_warmup=self.eager_warmup)
@@ -515,11 +524,13 @@ class JaxBench:
         res.parameters = encode_pardict(self.params)
         
         # First do eager profiling, to get a good idea of the memory
-        if fn is not None and (self.eager_rounds > 0 or self.eager_warmup > 0):
-            out, res.eager_mean_ms, res.eager_std_ms, res.eager_peak_bytes = self.profile_eager(fn, *args, **kwargs)
+        with nvtx.annotate(f"eager-{name}-x{self.eager_rounds}+{self.eager_warmup}", color="red"):
+            if fn is not None and (self.eager_rounds > 0 or self.eager_warmup > 0):
+                out, res.eager_mean_ms, res.eager_std_ms, res.eager_peak_bytes = self.profile_eager(fn, *args, **kwargs)
 
         if fn_jit is not None and (self.jit_rounds > 0 or self.jit_warmup > 0):
-            res.compile_ms, lowered, fn_compiled = self.compile_time_ms(fn_jit, *args, **kwargs)
+            with nvtx.annotate(f"jitcompile-{name}", color="blue"):
+                res.compile_ms, lowered, fn_compiled = self.compile_time_ms(fn_jit, *args, **kwargs)
             graph_mem = fn_compiled.memory_analysis()
 
             res.jit_constants_bytes = graph_mem.generated_code_size_in_bytes
@@ -534,7 +545,8 @@ class JaxBench:
                 res.jit_constants_bytes = 0
 
             if self.jit_rounds > 0:
-                out, res.jit_mean_ms, res.jit_std_ms = self.profile_jit(fn_jit, *args, **kwargs)
+                with nvtx.annotate(f"jitrun-{name}-x{self.jit_rounds}+{self.jit_warmup}", color="green"):
+                    out, res.jit_mean_ms, res.jit_std_ms = self.profile_jit(fn_jit, name, *args, **kwargs)
 
             if self.save_graph_svg and (jax.process_index() == 0):
                 from .utils import save_graph_svg
