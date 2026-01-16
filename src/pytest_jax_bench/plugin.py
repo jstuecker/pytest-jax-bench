@@ -233,8 +233,8 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             entry["Eager-Run(ms)"] = compare_perf("eager_mean_ms", std=np.sqrt(new["eager_std_ms"]**2+old["eager_std_ms"]**2))
             entry["Jit-Peak(MB)"] = compare_mem("jit_peak_bytes")
             entry["Jit-Const(MB)"] = compare_mem("jit_constants_bytes", min_mb=0.1)
-            eager_str = "Eager-Peak(MB)" #if forked else _colored("Eager-Mem(MB) (invalid!)", "yellow")
-            entry[eager_str] = compare_mem("eager_peak_bytes")
+            if forked:
+                entry["Eager-Peak(MB)"] = compare_mem("eager_peak_bytes")
 
             entries.append(entry)
 
@@ -254,8 +254,6 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
             return
         
         terminalreporter.write_sep("=", "Pytest Jax Benchmark (PTJB) results")
-        if not forked:
-            terminalreporter.write_line(_colored("Warning: Eager mode memory report is only valid when using --forked!", "yellow"))
 
         allkeys = entries[0].keys()
         

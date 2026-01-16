@@ -23,7 +23,7 @@ def fft(x): # An example function we want to profile
 def test_fft(jax_bench):  # jax_bench is a fixture that creates a JaxBench object.
     x = jnp.ones((256, 256, 256), dtype=jnp.float32)
 
-    jb = jax_bench(jit_rounds=20, jit_warmup=1, eager_rounds=10, eager_warmup=1)
+    jb = jax_bench(jit_rounds=20, jit_loops=1, jit_warmup=1, eager_rounds=10, eager_warmup=1)
     jb.measure(fn=fft, fn_jit=jax.jit(fft), x=x)
 ```
 Then simply run your tests as usual with [pytest](https://docs.pytest.org/en/stable/getting-started.html). E.g.
@@ -36,21 +36,24 @@ The `jb.measure` call in the example above will take the following steps:
 
 * An eager execution warmup run using `fn`
 * Save the measured peak memory usage. (This measurement has additional requirements as discussed below.)
-* Average the run-time of eager execution over 10 loops using `fn`. 
+* Average the run-time of eager execution over 10 runs using `fn`. 
 * Compile the jitted function using `fn_jit`
 * Save the predicted memory usage of the jitted function (including peak memory, temporary memory and memory used by folded constants)
-* Average the run-time of the jitted function over 20 loops, using `fn_jit`
+* Average the run-time of the jitted function over 20 runs, using `fn_jit`
 
 Different stages can be skipped by setting the measurement parameters to 0 or by not passing `fn` or `fn_jit`.
 
+## jit_loops
+The `jit_loops` parameter can be used to improve profiling -- especially of functions that have a large launch or synchronization overhead. When it is > 1, we will run a compiled for loop with `jit_loops` iterations `jit_rounds`+ `jit_warmup` times. The profiling will still calculate the average run time per call, but each individual measurement will already be averaged of the inner loop iterations so that this gives more accurate results per sample.
+
 ### Eager exeuction memory
 
-So far I didn't find a reliable way to measure the eager execution peak-memory usage that does not require restarting the measuring process. Therefore, this part of the measurement will be invalidated unless you execute with the `--forked` flag provided by `pytest-forked`
+So far I didn't find a reliable way to measure the eager execution peak-memory usage that does not require restarting the measuring process. Therefore, this part of the measurement will be invalid unless you execute with the `--forked` flag provided by `pytest-forked`
 ```bash
 #pip install pytest-forked  # If you didn't install it already
 pytest --forked
 ```
-However, this may significantly slow down execution due to the additional python launch required for each test. (If you know a better way to profile the memory used by jax, don't hesitate to contact me!) For now, I'd recommend to launch normally in general and only use `--forked` once in a while, when you really want to know the eager memory usage.
+However, this may significantly slow down execution and create a bunch of other problems. So I don't recommend using this, unless you really need an eager-memory report.
 
 ### Optional parameters
 All the optional parameters are listed in ```pytest --help```. Since the help file can be a bit overwhelming, you can specifically find all the options defined by pytest-jax-bench (ptjb) as follows:
