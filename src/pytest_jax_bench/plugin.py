@@ -386,13 +386,24 @@ def _get_peak_bytes() -> int:
     else:
         return -1 # Forn now only GPU is supported for peak memory measurement
 
+def looped_func(f, jit_loops=1, *args, **kwargs):
+    f0 = f(*args, **kwargs)
+
+    def looped(*args, **kwargs):
+        def iter(i, _):
+            return f(*args, **kwargs)
+
+        return jax.lax.fori_loop(0, jit_loops, iter, f0)
+    
+    return jax.jit(looped)
+
 # ---------------------------
 # The JaxBench core object
 # ---------------------------
 
 class JaxBench:
     def __init__(self, request: pytest.FixtureRequest | None = None, path = None,
-                 jit_rounds: int = 20, jit_warmup: int = 1, eager_rounds = 5, eager_warmup = 1) -> None:
+                 jit_rounds: int = 0, jit_loops: int = 1, jit_warmup: int = 0, eager_rounds = 0, eager_warmup = 0) -> None:
         
         if request is not None:
             self.forked = request.config.getoption("--forked", False)
@@ -424,14 +435,18 @@ class JaxBench:
             self.save_graph_svg = False
             self.params = {}
 
-        self.jit_rounds = int(jit_rounds)
-        self.jit_warmup = int(jit_warmup)
-        self.eager_rounds = int(eager_rounds)
-        self.eager_warmup = int(eager_warmup)
+        self.configure(jit_rounds, jit_loops, jit_warmup, eager_rounds, eager_warmup)
 
         self.run_id, self.commit, self.commit_run = _get_run_info(self.path + ".csv" if self.path is not None else None)
 
         self.measurement = 0
+
+    def configure(self, jit_rounds: int = 0, jit_loops: int = 1, jit_warmup: int = 0, eager_rounds: int = 0, eager_warmup: int = 0):
+        self.jit_rounds = int(jit_rounds)
+        self.jit_loops = int(jit_loops)
+        self.jit_warmup = int(jit_warmup)
+        self.eager_rounds = int(eager_rounds)
+        self.eager_warmup = int(eager_warmup)
 
     def compile_time_ms(self, fn_jit: Callable[..., Any], *args: Any, **kwargs: Any) -> float:
         """Return compilation time in milliseconds (excluding lowering)."""
@@ -444,6 +459,9 @@ class JaxBench:
 
     def profile_jit(self, fn_jit: Callable[..., Any], descr_name, *args: Any, **kwargs: Any) -> tuple[float, float]:
         """Return (mean_ms, std_ms, rounds, warmup)."""
+        if self.jit_loops > 1:
+            fn_jit = looped_func(fn_jit, jit_loops=self.jit_loops, *args, **kwargs)
+
         out = None
         for _ in range(self.jit_warmup):
             out = fn_jit(*args, **kwargs)
@@ -456,7 +474,7 @@ class JaxBench:
                 out = fn_jit(*args, **kwargs)
                 jax.block_until_ready(out)
                 t1 = time.perf_counter()
-                times.append((t1 - t0) * 1000.0)
+                times.append((t1 - t0) * 1000.0 / np.maximum(1, self.jit_loops))
 
         if self.jit_rounds >= 1:
             return out, float(np.round(np.mean(times), 3)), float(np.round(np.std(times), 3))
@@ -545,7 +563,7 @@ class JaxBench:
                 res.jit_constants_bytes = 0
 
             if self.jit_rounds > 0:
-                with nvtx.annotate(f"jitrun-{name}-x{self.jit_rounds}+{self.jit_warmup}", color="green"):
+                with nvtx.annotate(f"jitrun-{name}-x{self.jit_rounds}+{self.jit_warmup}x{self.jit_loops}", color="green"):
                     out, res.jit_mean_ms, res.jit_std_ms = self.profile_jit(fn_jit, name, *args, **kwargs)
 
             if self.save_graph_svg and (jax.process_index() == 0):
