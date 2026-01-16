@@ -382,6 +382,20 @@ def _get_peak_bytes() -> int:
     else:
         return -1 # Forn now only GPU is supported for peak memory measurement
 
+def jit_like(f, fjit):
+    """Jits f with the same jit arguments as fjit was jitted with"""
+    jit_info = fjit._jit_info._asdict()
+
+    JIT_KWARGS = (
+        "in_shardings", "out_shardings", "static_argnums", "static_argnames",
+        "donate_argnums", "donate_argnames", "keep_unused", "device",
+        "backend", "inline", "abstracted_axes", "compiler_options",
+    )
+
+    jit_kwargs = {k: v for k, v in jit_info.items() if k in JIT_KWARGS}
+
+    return jax.jit(f, **jit_kwargs)
+
 def looped_func(f, jit_loops=1, *args, **kwargs):
     f0 = f(*args, **kwargs)
 
@@ -391,7 +405,7 @@ def looped_func(f, jit_loops=1, *args, **kwargs):
 
         return jax.lax.fori_loop(0, jit_loops, iter, f0)
     
-    return jax.jit(looped)
+    return jit_like(looped, f)
 
 # ---------------------------
 # The JaxBench core object
