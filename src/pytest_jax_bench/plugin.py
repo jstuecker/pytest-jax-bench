@@ -546,7 +546,7 @@ class JaxBench:
             if fn is not None and (self.eager_rounds > 0 or self.eager_warmup > 0):
                 out, res.eager_mean_ms, res.eager_std_ms, res.eager_peak_bytes = self.profile_eager(fn, *args, **kwargs)
 
-        if fn_jit is not None and (self.jit_rounds > 0 or self.jit_warmup > 0):
+        if fn_jit is not None:
             with nvtx.annotate(f"jitcompile-{name}", color="blue"):
                 res.compile_ms, lowered, fn_compiled = self.compile_time_ms(fn_jit, *args, **kwargs)
             graph_mem = fn_compiled.memory_analysis()
