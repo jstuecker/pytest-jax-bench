@@ -14,8 +14,7 @@ dependencies = [
     "pytest>=7",
     "jax>=0.4.26",
     "numpy>=1.24",
-    "nvtx",
-    "pytest-requests"
+    "nvtx"
 ]
 
 [project.optional-dependencies]
