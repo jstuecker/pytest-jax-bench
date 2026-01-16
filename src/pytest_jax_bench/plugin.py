@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 import re
 import time
@@ -611,7 +609,7 @@ class JaxBench:
             f.write(res.formatted_line() + "\n")
 
 @pytest.fixture
-def jax_bench(request: pytest.FixtureRequest) -> Callable[..., JaxBench]:
+def jax_bench(request):
     def _factory(*args, **kwargs) -> JaxBench:
         return JaxBench(request, *args, **kwargs)
 
