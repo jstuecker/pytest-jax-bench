@@ -18,6 +18,7 @@ import nvtx
 import warnings
 
 import jax
+import jax.numpy as jnp
 
 # ---------------------------
 # Pytest plugin configuration
@@ -397,15 +398,20 @@ def jit_like(f, fjit):
     return jax.jit(f, **jit_kwargs)
 
 def looped_func(f, jit_loops=1, *args, **kwargs):
-    f0 = f(*args, **kwargs)
+    shape_tree = jax.eval_shape(f, *args, **kwargs)
+
+    def mk_zeros(x):
+        return jnp.zeros(x.shape, x.dtype)
 
     def looped(*args, **kwargs):
-        def iter(i, _):
+        init = jax.tree.map(mk_zeros, shape_tree)
+
+        def body(i, carry):
             return f(*args, **kwargs)
 
-        return jax.lax.fori_loop(0, jit_loops, iter, f0)
-    
-    return jit_like(looped, f)
+        return jax.lax.fori_loop(0, jit_loops, body, init)
+
+    return jit_like(looped)
 
 # ---------------------------
 # The JaxBench core object
