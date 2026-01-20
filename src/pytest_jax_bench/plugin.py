@@ -411,7 +411,7 @@ def looped_func(f, jit_loops=1, *args, **kwargs):
 
         return jax.lax.fori_loop(0, jit_loops, body, init)
 
-    return jit_like(looped)
+    return jit_like(looped, f)
 
 # ---------------------------
 # The JaxBench core object
