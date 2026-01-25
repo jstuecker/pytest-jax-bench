@@ -12,7 +12,7 @@ def rfft(x):
 def fft(x):
     return jnp.fft.ifftn(jnp.fft.fftn(x*2.))
 
-# ----------------------- The two standard ways of calling full benchmarks ----------------------- #
+# ---------------------------- Standard ways of calling full benchmarks -------------------------- #
 
 def test_standard(jax_bench):
     x = jnp.ones((128, 128, 128), dtype=jnp.float32)
@@ -27,6 +27,13 @@ def test_with_tags(jax_bench):
 
     jb.measure(fn=fft, fn_jit=jax.jit(fft), x=x, tag="fft")
     jb.measure(fn=rfft, fn_jit=jax.jit(rfft), x=x, tag="rfft")
+
+def test_jit_loops(jax_bench):
+    x = jnp.ones((64, 64, 64), dtype=jnp.float32)
+
+    # Small computation -> use a compiled loop for better profiling
+    jb = jax_bench(jit_rounds=10, jit_loops=100, jit_warmup=2)
+    jb.measure(fn=rfft, fn_jit=jax.jit(rfft), x=x)
 
 # -------------------------------- Ways of getting reduced outputs ------------------------------- #
 

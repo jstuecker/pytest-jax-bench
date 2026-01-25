@@ -100,13 +100,13 @@ def node_to_path(test_nodeid: str, output_dir: str = ".", params=None, get_based
     nodeid_save = re.sub(r"/", "-", test_nodeid)
     nodeid_save = re.sub(r"::", "--", nodeid_save)
 
+    test_base = re.sub(r"\[.*\]$", "", nodeid_save)
+    base_dir = os.path.join(output_dir, test_base)
+
     if params is not None and len(params) > 0:
-        test_base = re.sub(r"\[.*\]$", "", nodeid_save)
-        base_dir = os.path.join(output_dir, test_base)
         file = os.path.join(base_dir, encode_pardict(params))
     else:
-        base_dir = None
-        file = os.path.join(output_dir, nodeid_save)
+        file = os.path.join(base_dir, "main")
 
     if get_basedir:
         return file, base_dir

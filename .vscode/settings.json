@@ -1,8 +1,7 @@
 {
+    "python.testing.cwd": "${workspaceFolder}/tests",
     "python.testing.pytestArgs": [
-        "tests",
         "-v",
-        "--rootdir=tests",
         "--ptjb-plot"
     ],
     "python.testing.unittestEnabled": false,
