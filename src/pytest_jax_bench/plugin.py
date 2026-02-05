@@ -397,7 +397,7 @@ def jit_like(f, fjit):
 
     return jax.jit(f, **jit_kwargs)
 
-def looped_func(f, jit_loops=1, *args, **kwargs):
+def looped_func(f, *args, jit_loops=1, **kwargs):
     shape_tree = jax.eval_shape(f, *args, **kwargs)
 
     def mk_zeros(x):
