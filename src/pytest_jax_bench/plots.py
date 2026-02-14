@@ -117,9 +117,8 @@ def plot_performance_tagged(data, title=None, xaxis="commit", ax=None):
         if np.any((data_t["jit_mean_ms"] > 0) | (data_t["eager_mean_ms"] > 0)):
             ax.set_yscale("log")
     
-    if np.any(data["jit_mean_ms"] > 0):
+    if np.any(data["jit_mean_ms"] > 0) and np.any(data["eager_mean_ms"] > 0):
         ax.plot([], [], label="jitted", color="k", marker="o", alpha=0.8)
-    if np.any(data["eager_mean_ms"] > 0):
         ax.plot([], [], label="eager", color="k", marker="o", alpha=0.2, ls="dashed")
 
     ax.set_ylabel("Time (ms)")
