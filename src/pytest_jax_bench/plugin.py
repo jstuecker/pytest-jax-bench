@@ -39,6 +39,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Do not compare to previous runs of same commit (default: False)",
     )
     group.addoption(
+        "--ptjb-pin",
+        action="store",
+        default=None,
+        help="Pin comparison to a specific commit (supports partial commit strings, commit:run, or :run syntax)",
+    )
+    group.addoption(
         "--ptjb-save-graph",
         action="store_true",
         default=False,
@@ -70,14 +76,83 @@ def select_commit_runs(data, commit, tag=None):
         mask &= (data["tag"] == tag)
     return data[mask]
 
-def get_comparison_data(data, tag="base"):
+def _parse_pin_spec(pin_commit):
+    if pin_commit is None:
+        return None, None
+
+    commit_part, _, run_part = pin_commit.partition(":")
+    commit_part = commit_part or None
+
+    commit_run = None
+    if run_part:
+        try:
+            commit_run = int(run_part)
+        except ValueError:
+            pass
+
+    return commit_part, commit_run
+
+def find_commit_by_prefix(data, prefix):
+    """
+    Find a commit in data that matches the given prefix.
+    Supports:
+    - Full commit strings (e.g., 'v0.3-184-g3413a46+')
+    - Partial commit strings (e.g., 'v0.3' or 'ce4ca93')
+    - Git hash only (e.g., '2638374')
+    - Full git hash (e.g., '2638374abc...' where stored is '2638374')
+    
+    Returns the full commit string if found, None otherwise.
+    """
+    if prefix is None:
+        return None
+
+    prefix_clean = prefix.rstrip("+")
+    
+    unique_commits = np.unique(data["commit"])
+    
+    for commit in unique_commits:
+        commit_clean = commit.rstrip("+")
+
+        if commit_clean.startswith(prefix_clean):
+            return commit_clean
+
+        if "-g" in commit_clean:
+            hash_part = commit_clean.split("-g")[-1]
+            if hash_part.startswith(prefix_clean) or prefix_clean.startswith(hash_part):
+                return commit_clean
+    
+    return None
+
+def get_comparison_data(data, tag="base", pin_commit=None):
     if len(data) == 0:
         return None, None
 
-    new_data = data[data["tag"] == tag][-1]
-    comparison_data = select_commit_runs(data, new_data["commit"], new_data["tag"])[0]
+    tag_data = data[data["tag"] == tag]
+    if len(tag_data) == 0:
+        return None, None
 
-    return new_data, comparison_data
+    new_data = tag_data[-1]
+    comparison_commit = new_data["commit"]
+    pin_commit_str, pin_commit_run = _parse_pin_spec(pin_commit)
+
+    if pin_commit_str is not None:
+        matched_commit = find_commit_by_prefix(data, pin_commit_str)
+        if matched_commit is None:
+            return new_data, new_data
+        comparison_commit = matched_commit
+    
+    runs = select_commit_runs(data, comparison_commit, new_data["tag"])
+    if len(runs) == 0:
+        return new_data, new_data
+
+    if pin_commit_run is None:
+        return new_data, runs[0]
+
+    matching_runs = runs[runs["commit_run"] == pin_commit_run]
+    if len(matching_runs) == 0:
+        return new_data, new_data
+
+    return new_data, matching_runs[0]
 
 def _colored(s: str, color: str) -> str:
     # Respect NO_COLOR or dumb terminals
@@ -173,13 +248,14 @@ def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatu
         forked = config.getoption("--forked", False)
 
         no_compare = config.getoption("--ptjb-no-compare", False)
+        pin_commit = config.getoption("--ptjb-pin", None)
 
         if not os.path.exists(output_dir) or len(os.listdir(output_dir)) == 0:
             return
 
         entries = []
         def add_entry(data, nodeid, tag=None):
-            new, old = get_comparison_data(data, tag=tag)
+            new, old = get_comparison_data(data, tag=tag, pin_commit=pin_commit)
             if new is None: 
                 return
             if no_compare:
