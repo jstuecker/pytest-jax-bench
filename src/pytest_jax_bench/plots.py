@@ -182,7 +182,10 @@ def create_and_save(data, path, xaxis="run", tagged=False, save="png", trep=None
     else:
         plot_performance(data, title=title, xaxis=xaxis, ax=axs[0])
         plot_memory_usage(data, title=title, xaxis=xaxis, ax=axs[1])
-    fig.tight_layout()
+    try:
+        fig.tight_layout()
+    except UserWarning:
+        pass
     fig.savefig(path + "." + save)
     plt.close(fig)
 
