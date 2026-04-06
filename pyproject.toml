@@ -8,7 +8,8 @@ version = "0.5.0"
 description = "Pytest plugin to profile jitted JAX functions (compile time, runtime, memory)."
 readme = "README.md"
 authors = [{ name = "Jens Stücker", email = "jens.stuecker@univie.ac.at" }]
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICEN[CS]E"]
 requires-python = ">=3.9"
 dependencies = [
     "pytest>=7",
@@ -16,6 +17,14 @@ dependencies = [
     "numpy>=1.24",
     "nvtx"
 ]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/jstuecker/pytest-jax-bench"
+Issues = "https://github.com/jstuecker/pytest-jax-bench/issues"
 
 [project.optional-dependencies]
 plot = ["matplotlib>=3.6", "graphviz>=0.20"]
