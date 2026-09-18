@@ -70,7 +70,8 @@ def prepare_xaxis(data, xaxis="commit", ax=None):
     elif xaxis in data.dtype.names:
         ax.set_xlabel(xaxis)
         x = data[xaxis]
-        if (np.max(x) / np.min(x) > 20) and np.all(x > 0):
+        # Named parameters use Matplotlib's categorical axis, not a log scale.
+        if x.dtype.kind in "iuf" and x.size and np.all(x > 0) and np.max(x) / np.min(x) > 20:
             ax.set_xscale("log")
     else:
         raise ValueError(f"Unknown xaxis {xaxis}, must be 'commit' or 'run'")
