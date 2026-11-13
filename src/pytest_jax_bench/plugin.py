@@ -239,6 +239,9 @@ def pytest_runtest_makereport(item, call):
         rep.user_properties.append(("ptjb_mark", safe_kwargs))
 
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter, exitstatus : pytest.ExitCode, config: pytest.Config) -> None:
+    if config.option.collectonly:
+        return
+
     if jax.process_index() != 0:
         return
     
